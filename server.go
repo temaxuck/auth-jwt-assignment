@@ -25,6 +25,7 @@ func runServer(addr string, cfg *Config, db *pgxpool.Pool) error {
 	router.Handle("/auth/{guid}/login", MethodMapper{Post: h.login})
 	router.Handle("/auth/{guid}/logout", MethodMapper{Post: h.logout})
 	router.Handle("/auth/{guid}/refresh", MethodMapper{Post: h.protected(h.refresh)})
+	router.Handle("/auth/security/refresh-new-ip", MethodMapper{Post: securityDummyWebhook})
 	router.Handle("/whoami", MethodMapper{Get: h.protected(h.whoami)})
 
 	log.Println("Starting server on:", addr)
@@ -124,16 +125,16 @@ func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-
 	if rt.UserAgent != userAgent {
 		ResetTokenCookie(w, "access-token")
 		ResetTokenCookie(w, "refresh-token")
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
 	}
 
 	if rt.IP != ip {
 		go func() {
-			err := NotifyRefreshFromNewIP(h.cfg.Auth.WebhookURL, guid, ip, userAgent)
+			err := NotifyRefreshFromNewIP(h.cfg.Auth.WebhookURL, guid, ip, rt.IP, userAgent)
 			if err != nil {
 				log.Printf("ERROR: Failed to notify security service: %v", err)
 			}
@@ -174,4 +175,22 @@ func (h *Handler) whoami(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Write(response)
+}
+
+func securityDummyWebhook(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		UserGUID  string `json:"user_guid"`
+		NewIP     string `json:"new_ip"`
+		OldIP     string `json:"old_ip"`
+		UserAgent string `json:"user_agent"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		log.Printf("ERROR: Failed to unmarshal request body: %v", err)
+		http.Error(w, "Invalid payload", http.StatusBadRequest)
+		return
+	}
+
+	log.Printf("INFO: [UserID: %s; UserAgent: %s] Client refreshed token from a new IP address: %s => %s", payload.UserGUID, payload.UserAgent, payload.OldIP, payload.NewIP)
+
 }
