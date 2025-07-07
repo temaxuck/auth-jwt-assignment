@@ -28,7 +28,8 @@ func ConnectDB(cfg *Config) (*pgxpool.Pool, error) {
 }
 
 // NOTE: For this specific small assignment we probably don't need to keep models aligned with
-// database tables. That's why we create the tables (in our case just one) manually.
+// database tables. That's why we create the tables (here it's just one) manually. Usually, I'd use
+// GORM for that.
 func InitDB(pool *pgxpool.Pool) error {
 	query := `CREATE TABLE IF NOT EXISTS refresh_tokens (
                   id SERIAL PRIMARY KEY,
