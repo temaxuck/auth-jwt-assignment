@@ -24,7 +24,7 @@ func runServer(addr string, cfg *Config, db *pgxpool.Pool) error {
 	router := http.NewServeMux()
 	router.Handle("/auth/{guid}/login", MethodMapper{Post: h.login})
 	router.Handle("/auth/{guid}/logout", MethodMapper{Post: h.logout})
-	router.Handle("/auth/{guid}/refresh", MethodMapper{Post: h.refresh})
+	router.Handle("/auth/{guid}/refresh", MethodMapper{Post: h.protected(h.refresh)})
 	router.Handle("/whoami", MethodMapper{Get: h.protected(h.whoami)})
 
 	log.Println("Starting server on:", addr)
@@ -34,7 +34,7 @@ func runServer(addr string, cfg *Config, db *pgxpool.Pool) error {
 
 func (h *Handler) protected(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		cookie, err := r.Cookie("access-token")
+		atCookie, err := r.Cookie("access-token")
 		if err != nil {
 			switch err {
 			case http.ErrNoCookie:
@@ -46,13 +46,16 @@ func (h *Handler) protected(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-		payload, err := ValidateAccessToken(h.cfg, cookie.Value)
+		payload, err := ValidateAccessToken(h.cfg, atCookie.Value)
 		if err != nil {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
 
+		rtCookie, err := r.Cookie("refresh-token")
 		ctx := r.Context()
+		ctx = context.WithValue(ctx, "access-token", atCookie.Value)
+		ctx = context.WithValue(ctx, "refresh-token", rtCookie.Value)
 		ctx = context.WithValue(ctx, "access-token-payload", payload)
 		r = r.WithContext(ctx)
 
@@ -61,8 +64,8 @@ func (h *Handler) protected(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
-	GUID := r.PathValue("guid")
-	accessToken, expires, err := IssueAccessToken(h.cfg, GUID)
+	guid := r.PathValue("guid")
+	accessToken, expires, err := IssueAccessToken(guid, h.cfg.Auth.AccessTokenLifetime, h.cfg.Auth.Secret)
 	if err != nil {
 		log.Printf("ERROR: Couldn't issue access token: %v", err)
 		http.Error(w, "Server error", http.StatusInternalServerError)
@@ -71,7 +74,7 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 	SetTokenCookie(w, "access-token", accessToken, expires)
 
 	ip, _, _ := net.SplitHostPort(r.RemoteAddr) // Assuming http.Request.RemoteAddr is always valid
-	refreshToken, expires, err := IssueRefreshToken(h.cfg, h.db, GUID, accessToken, r.UserAgent(), ip)
+	refreshToken, expires, err := IssueRefreshToken(h.db, guid, accessToken, r.UserAgent(), ip, h.cfg.Auth.RefreshTokenLifetime)
 	if err != nil {
 		log.Printf("ERROR: Couldn't issue refresh token: %v", err)
 		http.Error(w, "Server error", http.StatusInternalServerError)
@@ -81,9 +84,9 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
-	GUID := r.PathValue("guid")
+	guid := r.PathValue("guid")
 	ip, _, _ := net.SplitHostPort(r.RemoteAddr) // Assuming http.Request.RemoteAddr is always valid
-	err := RevokeRefreshTokensForClient(h.db, GUID, ip, r.UserAgent())
+	err := RevokeRefreshTokensForClient(h.db, guid, ip, r.UserAgent())
 	if err != nil {
 		log.Printf("ERROR: Couldn't revoke refresh token: %v", err)
 		http.Error(w, "Server error", http.StatusInternalServerError)
@@ -94,23 +97,75 @@ func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 	ResetTokenCookie(w, "refresh-token")
 }
 
-func (_ *Handler) refresh(w http.ResponseWriter, r *http.Request) {
-	// 1. Get the access token (raw) and the refresh token (fetch from db)
-	// 2. Verify pair: access token <=> refresh token
-	// 3. Deauthorize if User-Agents do not match
-	// 4. Notify webhook if IPs don't match
-	log.Println("refresh handler")
+func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
+	guid := r.PathValue("guid")
+	ip, _, _ := net.SplitHostPort(r.RemoteAddr) // Assuming http.Request.RemoteAddr is always valid
+	userAgent := r.UserAgent()
+	atRaw, _ := r.Context().Value("access-token").(string)
+	rtRaw, _ := r.Context().Value("refresh-token").(string)
+
+	rt, err := FetchRefreshTokenByRawToken(h.db, guid, rtRaw)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if rt.Revoked {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	defer func() {
+		err := RevokeRefreshToken(h.db, rt)
+		if err != nil {
+			log.Printf("ERROR: Couldn't revoke refresh token: %w", err)
+		}
+	}()
+
+	if rt.AccessToken != atRaw {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if rt.UserAgent != userAgent {
+		ResetTokenCookie(w, "access-token")
+		ResetTokenCookie(w, "refresh-token")
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+	}
+
+	if rt.IP != ip {
+		go func() {
+			err := NotifyRefreshFromNewIP(h.cfg.Auth.WebhookURL, guid, ip, userAgent)
+			if err != nil {
+				log.Printf("ERROR: Failed to notify security service: %v", err)
+			}
+		}()
+	}
+
+	atNew, expires, err := IssueAccessToken(guid, h.cfg.Auth.AccessTokenLifetime, h.cfg.Auth.Secret)
+	if err != nil {
+		log.Printf("ERROR: Couldn't issue access token: %v", err)
+		http.Error(w, "Server error", http.StatusInternalServerError)
+		return
+	}
+	SetTokenCookie(w, "access-token", atNew, expires)
+
+	rtNew, expires, err := IssueRefreshToken(h.db, guid, atNew, r.UserAgent(), ip, h.cfg.Auth.RefreshTokenLifetime)
+	if err != nil {
+		log.Printf("ERROR: Couldn't issue refresh token: %v", err)
+		http.Error(w, "Server error", http.StatusInternalServerError)
+		return
+	}
+	SetTokenCookie(w, "refresh-token", rtNew, expires)
 }
 
 func (h *Handler) whoami(w http.ResponseWriter, r *http.Request) {
-	tp, ok := r.Context().Value("access-token-payload").(*AccessTokenPayload)
+	atp, ok := r.Context().Value("access-token-payload").(*AccessTokenPayload)
 	if !ok {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 
-	data := map[string]string{"GUID": tp.UserGUID}
+	data := map[string]string{"GUID": atp.UserGUID}
 	response, err := json.Marshal(data)
 	if err != nil {
 		log.Printf("Couldn't marshal data: %w", err)
