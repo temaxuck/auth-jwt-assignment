@@ -31,17 +31,20 @@ func ConnectDB(cfg *Config) (*pgxpool.Pool, error) {
 // database tables. That's why we create the tables (here it's just one) manually. Usually, I'd use
 // GORM for that.
 func InitDB(pool *pgxpool.Pool) error {
-	query := `CREATE TABLE IF NOT EXISTS refresh_tokens (
-                  id SERIAL PRIMARY KEY,
-                  user_id UUID NOT NULL,
-                  token_hash TEXT NOT NULL,
-                  access_token TEXT NOT NULL,
-                  user_agent TEXT NOT NULL,
-                  ip TEXT NOT NULL,
-                  expires_at TIMESTAMP NOT NULL,
-                  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-                  revoked BOOLEAN NOT NULL DEFAULT FALSE
-              );`
+	query := `
+        CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+        CREATE TABLE IF NOT EXISTS refresh_tokens (
+            id UUID  PRIMARY KEY,
+            user_id UUID NOT NULL,
+            token_hash TEXT NOT NULL,
+            access_token TEXT NOT NULL,
+            user_agent TEXT NOT NULL,
+            ip TEXT NOT NULL,
+            expires_at TIMESTAMP NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+            revoked BOOLEAN NOT NULL DEFAULT FALSE
+        );`
 	if _, err := pool.Exec(context.Background(), query); err != nil {
 		return fmt.Errorf("Couldn't initialized database: %w", err)
 	}

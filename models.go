@@ -5,7 +5,7 @@ import (
 )
 
 type RefreshToken struct {
-	ID          int
+	ID          string
 	UserGUID    string
 	TokenHash   string
 	AccessToken string
