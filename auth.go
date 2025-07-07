@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"math/rand"
 	"net/http"
@@ -15,26 +17,26 @@ import (
 
 const TOKEN_HASH_SIZE = 54
 
-func IssueAccessToken(cfg *Config, guid string) (token string, expires time.Time, err error) {
-	expires = time.Now().Add(cfg.Auth.AccessTokenLifetime)
+func IssueAccessToken(guid string, lifetime time.Duration, secret []byte) (token string, expires time.Time, err error) {
+	expires = time.Now().Add(lifetime)
 	token, err = jwt.NewWithClaims(
 		jwt.SigningMethodHS256,
 		jwt.MapClaims{
 			"sub": guid,
 			"exp": expires.Unix(),
 		},
-	).SignedString(cfg.Auth.Secret)
+	).SignedString(secret)
 	return token, expires, err
 }
 
-func IssueRefreshToken(cfg *Config, db *pgxpool.Pool, guid string, accessToken string, userAgent string, ip string) (token string, expires time.Time, err error) {
-	rawToken, err := generateRawToken(cfg)
+func IssueRefreshToken(db *pgxpool.Pool, guid string, accessToken string, userAgent string, ip string, lifetime time.Duration) (token string, expires time.Time, err error) {
+	rawToken, err := generateRawToken()
 	if err != nil {
 		return "", time.Time{}, err
 	}
 
 	now := time.Now()
-	expires = now.Add(cfg.Auth.RefreshTokenLifetime)
+	expires = now.Add(lifetime)
 	t, err := newRefreshToken(guid, rawToken, accessToken, userAgent, ip, now, expires, false)
 	if err != nil {
 		return "", time.Time{}, err
@@ -93,6 +95,15 @@ func ValidateAccessToken(cfg *Config, token string) (*AccessTokenPayload, error)
 	return p, nil
 }
 
+func RevokeRefreshToken(db *pgxpool.Pool, t *RefreshToken) error {
+	_, err := db.Exec(
+		context.Background(),
+		`UPDATE refresh_tokens SET revoked = true WHERE id=$1`,
+		t.ID,
+	)
+	return err
+}
+
 func RevokeRefreshTokensForClient(db *pgxpool.Pool, userId string, clientIP string, clientUA string) error {
 	rts, err := getRefreshTokensByClient(db, userId, clientIP, clientUA)
 	if err != nil {
@@ -109,18 +120,46 @@ func RevokeRefreshTokensForIP(db *pgxpool.Pool, userId string, clientIP string) 
 	return revokeRefreshTokens(db, rts)
 }
 
-func revokeRefreshToken(db *pgxpool.Pool, t *RefreshToken) error {
-	_, err := db.Exec(
-		context.Background(),
-		`UPDATE refresh_tokens SET revoked = true WHERE id=$1`,
-		t.ID,
-	)
-	return err
+func FetchRefreshTokenByRawToken(db *pgxpool.Pool, guid string, rawToken string) (*RefreshToken, error) {
+	haystack, err := getRefreshTokensByUserID(db, guid)
+	if err != nil {
+		return nil, err
+	}
+
+	var needle *RefreshToken
+	for _, rt := range haystack {
+		err := bcrypt.CompareHashAndPassword([]byte(rt.TokenHash), []byte(rawToken))
+		if err == nil {
+			needle = &rt
+			break
+		}
+	}
+
+	if needle == nil {
+		return nil, fmt.Errorf("Refresh token not found")
+	}
+
+	return needle, nil
+}
+
+func NotifyRefreshFromNewIP(url, userId, ip, userAgent string) error {
+	payload := map[string]string{
+		"user_guid":  userId,
+		"ip":         ip,
+		"user_agent": userAgent,
+	}
+	data, _ := json.Marshal(payload)
+	_, err := http.Post(url, "application/json", bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func revokeRefreshTokens(db *pgxpool.Pool, rts []RefreshToken) error {
 	for _, rt := range rts {
-		err := revokeRefreshToken(db, &rt)
+		err := RevokeRefreshToken(db, &rt)
 		if err != nil {
 			return err
 		}
@@ -166,7 +205,7 @@ func storeRefreshToken(db *pgxpool.Pool, t *RefreshToken) error {
 	return err
 }
 
-func generateRawToken(cfg *Config) (string, error) {
+func generateRawToken() (string, error) {
 	bytes := make([]byte, TOKEN_HASH_SIZE)
 	_, err := rand.Read(bytes)
 	if err != nil {
@@ -228,6 +267,46 @@ func getRefreshTokensByIP(db *pgxpool.Pool, userId string, clientIP string) ([]R
          FROM refresh_tokens
          WHERE user_id=$1 AND ip=$2`,
 		userId, clientIP,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var rts []RefreshToken
+	for rows.Next() {
+		var rt RefreshToken
+		if err := rows.Scan(
+			&rt.ID,
+			&rt.UserGUID,
+			&rt.TokenHash,
+			&rt.AccessToken,
+			&rt.UserAgent,
+			&rt.IP,
+			&rt.ExpiresAt,
+			&rt.CreatedAt,
+			&rt.Revoked,
+		); err != nil {
+			return nil, err
+		}
+		rts = append(rts, rt)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return rts, nil
+}
+
+func getRefreshTokensByUserID(db *pgxpool.Pool, userId string) ([]RefreshToken, error) {
+	rows, err := db.Query(
+		context.Background(),
+		`SELECT
+             id, user_id, token_hash, access_token, user_agent, ip, expires_at, created_at, revoked
+         FROM refresh_tokens
+         WHERE user_id=$1`,
+		userId,
 	)
 	if err != nil {
 		return nil, err
