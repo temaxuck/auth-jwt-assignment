@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"net"
 	"net/http"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -69,7 +70,8 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 	}
 	SetTokenCookie(w, "access-token", accessToken, expires)
 
-	refreshToken, expires, err := IssueRefreshToken(h.cfg, h.db, GUID, accessToken, r.UserAgent(), r.RemoteAddr)
+	ip, _, _ := net.SplitHostPort(r.RemoteAddr) // Assuming http.Request.RemoteAddr is always valid
+	refreshToken, expires, err := IssueRefreshToken(h.cfg, h.db, GUID, accessToken, r.UserAgent(), ip)
 	if err != nil {
 		log.Printf("ERROR: Couldn't issue refresh token: %v", err)
 		http.Error(w, "Server error", http.StatusInternalServerError)
@@ -78,11 +80,25 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 	SetTokenCookie(w, "refresh-token", refreshToken, expires)
 }
 
-func (_ *Handler) logout(w http.ResponseWriter, r *http.Request) {
-	log.Println("logout handler")
+func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
+	GUID := r.PathValue("guid")
+	ip, _, _ := net.SplitHostPort(r.RemoteAddr) // Assuming http.Request.RemoteAddr is always valid
+	err := RevokeRefreshTokensForClient(h.db, GUID, ip, r.UserAgent())
+	if err != nil {
+		log.Printf("ERROR: Couldn't revoke refresh token: %v", err)
+		http.Error(w, "Server error", http.StatusInternalServerError)
+		return
+	}
+
+	ResetTokenCookie(w, "access-token")
+	ResetTokenCookie(w, "refresh-token")
 }
 
 func (_ *Handler) refresh(w http.ResponseWriter, r *http.Request) {
+	// 1. Get the access token (raw) and the refresh token (fetch from db)
+	// 2. Verify pair: access token <=> refresh token
+	// 3. Deauthorize if User-Agents do not match
+	// 4. Notify webhook if IPs don't match
 	log.Println("refresh handler")
 }
 
