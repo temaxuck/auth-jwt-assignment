@@ -25,7 +25,7 @@ const TOKEN_HASH_SIZE = 36 // = $(Bcrypt Max Password Length) / $(Chars Per byte
 func IssueAccessToken(guid string, lifetime time.Duration, secret []byte) (token string, expires time.Time, err error) {
 	expires = time.Now().Add(lifetime)
 	token, err = jwt.NewWithClaims(
-		jwt.SigningMethodHS256,
+		jwt.SigningMethodHS512,
 		jwt.MapClaims{
 			"sub": guid,
 			"exp": expires.Unix(),
