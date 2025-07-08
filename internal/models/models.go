@@ -1,10 +1,4 @@
-// MQE - Micro SQL Query Engine.
-//
-// It was created on the fly to eliminate repetitive code and is not intended for production use.
-//
-// Author: Darizhapov Artem
-
-package mqe
+package models
 
 import (
 	"fmt"

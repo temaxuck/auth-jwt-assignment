@@ -1,4 +1,4 @@
-package mqe
+package models
 
 import (
 	"errors"

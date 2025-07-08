@@ -6,8 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"auth-jwt-assignment/pkg/mqe"
-
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -29,7 +27,7 @@ func (rt RefreshToken) TableName() string {
 }
 
 func (rt RefreshToken) CreateTable(db *pgxpool.Pool) error {
-	columns, err := mqe.GetColumns(rt, true)
+	columns, err := GetColumns(rt, true)
 	if err != nil {
 		return err
 	}
@@ -44,7 +42,7 @@ func (rt RefreshToken) CreateTable(db *pgxpool.Pool) error {
 
 func (rt *RefreshToken) Insert(db *pgxpool.Pool) error {
 	tableName := rt.TableName()
-	columns, err := mqe.GetColumns(rt, false)
+	columns, err := GetColumns(rt, false)
 	if err != nil {
 		return err
 	}
@@ -66,7 +64,7 @@ func (rt *RefreshToken) Insert(db *pgxpool.Pool) error {
 func RefreshTokenFirst(db *pgxpool.Pool, filters map[string]any) (*RefreshToken, error) {
 	rt := RefreshToken{}
 	tableName := rt.TableName()
-	columns, err := mqe.GetColumns(rt, false)
+	columns, err := GetColumns(rt, false)
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +96,7 @@ func RefreshTokenFirst(db *pgxpool.Pool, filters map[string]any) (*RefreshToken,
 func RefreshTokenAll(db *pgxpool.Pool, filters map[string]any) ([]RefreshToken, error) {
 	rt := RefreshToken{}
 	tableName := rt.TableName()
-	columns, err := mqe.GetColumns(rt, false)
+	columns, err := GetColumns(rt, false)
 	if err != nil {
 		return nil, err
 	}
@@ -160,32 +158,4 @@ func (rt *RefreshToken) Update(db *pgxpool.Pool, newValues map[string]any) error
 	}
 
 	return nil
-}
-
-func parseClauseExpr(rt *RefreshToken, fv map[string]any, startArgc int) ([]string, []interface{}, int, error) {
-	fc, err := mqe.GetFC(rt)
-	if err != nil {
-		return nil, nil, -1, err
-	}
-
-	var clauses []string
-	var args []interface{}
-	var argc int
-	if startArgc < 1 {
-		argc = 1
-	} else {
-		argc = startArgc
-	}
-
-	for c, v := range fv {
-		sqlCol, ok := fc[c]
-		if !ok {
-			return nil, nil, -1, fmt.Errorf("invalid column %s", c)
-		}
-		clauses = append(clauses, fmt.Sprintf("%q = $%d", sqlCol, argc))
-		args = append(args, v)
-		argc++
-	}
-
-	return clauses, args, argc, nil
 }
