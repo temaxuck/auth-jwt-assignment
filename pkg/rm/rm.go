@@ -1,5 +1,5 @@
 // Route Method Mapper
-package main
+package rm
 
 import "net/http"
 

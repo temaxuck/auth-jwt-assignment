@@ -1,4 +1,4 @@
-package main
+package auth
 
 import (
 	"fmt"
@@ -15,7 +15,7 @@ type AccessTokenPayload struct {
 
 func (t AccessTokenPayload) Validate() error {
 	if t.ExpiresAt.Time.Before(time.Now()) {
-		return fmt.Errorf("Token expired")
+		return fmt.Errorf("token expired")
 	}
 
 	return nil

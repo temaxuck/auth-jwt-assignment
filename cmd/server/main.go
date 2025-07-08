@@ -5,22 +5,26 @@ import (
 	"fmt"
 	"log"
 	"os"
+
+	c "auth-jwt-assignment/config"
+	db "auth-jwt-assignment/internal/db"
+	"auth-jwt-assignment/internal/http"
 )
 
 func main() {
 	addr := parseAddrFromCli()
-	cfg := NewConfig()
-	db, err := ConnectDB(cfg)
+	cfg := c.NewConfig()
+	pg, err := db.ConnectDB(cfg)
 	if err != nil {
 		log.Fatalf("ERROR: %v", err)
 		os.Exit(1)
 	}
-	if err := InitDB(db); err != nil {
+	if err := db.InitDB(pg); err != nil {
 		log.Fatalf("ERROR: %v", err)
 		os.Exit(1)
 	}
 
-	log.Fatal(runServer(addr, cfg, db))
+	log.Fatal(http.RunServer(addr, cfg, pg))
 }
 
 func parseAddrFromCli() string {

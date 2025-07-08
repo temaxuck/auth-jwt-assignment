@@ -1,4 +1,4 @@
-package main
+package auth
 
 import (
 	"bytes"
@@ -12,6 +12,9 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	c "auth-jwt-assignment/config"
+	m "auth-jwt-assignment/internal/models"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
@@ -80,7 +83,7 @@ func ResetTokenCookie(w http.ResponseWriter, cookieName string) {
 	})
 }
 
-func ValidateAccessToken(cfg *Config, token string) (*AccessTokenPayload, error) {
+func ValidateAccessToken(cfg *c.Config, token string) (*AccessTokenPayload, error) {
 	t, err := jwt.ParseWithClaims(
 		token,
 		&AccessTokenPayload{},
@@ -103,7 +106,7 @@ func ValidateAccessToken(cfg *Config, token string) (*AccessTokenPayload, error)
 	return p, nil
 }
 
-func RevokeRefreshToken(db *pgxpool.Pool, t *RefreshToken) error {
+func RevokeRefreshToken(db *pgxpool.Pool, t *m.RefreshToken) error {
 	_, err := db.Exec(
 		context.Background(),
 		`UPDATE refresh_tokens SET revoked = true WHERE id=$1`,
@@ -128,7 +131,7 @@ func RevokeRefreshTokensForIP(db *pgxpool.Pool, userId string, clientIP string) 
 	return revokeRefreshTokens(db, rts)
 }
 
-func FetchRefreshTokenByRawToken(db *pgxpool.Pool, guid string, tokenStringB64 string) (*RefreshToken, error) {
+func FetchRefreshTokenByRawToken(db *pgxpool.Pool, guid string, tokenStringB64 string) (*m.RefreshToken, error) {
 	decodedToken, err := base64.StdEncoding.DecodeString(tokenStringB64)
 	if err != nil {
 		return nil, err
@@ -164,7 +167,7 @@ func NotifyRefreshFromNewIP(url, userID, newIP, oldIP, userAgent string) error {
 	return nil
 }
 
-func revokeRefreshTokens(db *pgxpool.Pool, rts []RefreshToken) error {
+func revokeRefreshTokens(db *pgxpool.Pool, rts []m.RefreshToken) error {
 	for _, rt := range rts {
 		err := RevokeRefreshToken(db, &rt)
 		if err != nil {
@@ -174,8 +177,8 @@ func revokeRefreshTokens(db *pgxpool.Pool, rts []RefreshToken) error {
 	return nil
 }
 
-func newRefreshToken(tokenID string, userID string, rawToken string, accessToken string, userAgent string, ip string, expiresAt time.Time, createdAt time.Time, revoked bool) (*RefreshToken, error) {
-	t := &RefreshToken{}
+func newRefreshToken(tokenID string, userID string, rawToken string, accessToken string, userAgent string, ip string, expiresAt time.Time, createdAt time.Time, revoked bool) (*m.RefreshToken, error) {
+	t := &m.RefreshToken{}
 	hashedToken, err := hashToken(rawToken)
 	if err != nil {
 		return t, err
@@ -194,7 +197,7 @@ func newRefreshToken(tokenID string, userID string, rawToken string, accessToken
 	return t, nil
 }
 
-func storeRefreshToken(db *pgxpool.Pool, t *RefreshToken) error {
+func storeRefreshToken(db *pgxpool.Pool, t *m.RefreshToken) error {
 	query := `INSERT INTO refresh_tokens (
                   id,
                   user_id,
@@ -228,7 +231,7 @@ func hashToken(token string) (string, error) {
 	return string(hash), err
 }
 
-func getRefreshTokensByClient(db *pgxpool.Pool, userId string, clientIP string, clientUA string) ([]RefreshToken, error) {
+func getRefreshTokensByClient(db *pgxpool.Pool, userId string, clientIP string, clientUA string) ([]m.RefreshToken, error) {
 	rows, err := db.Query(
 		context.Background(),
 		`SELECT
@@ -242,9 +245,9 @@ func getRefreshTokensByClient(db *pgxpool.Pool, userId string, clientIP string, 
 	}
 	defer rows.Close()
 
-	var rts []RefreshToken
+	var rts []m.RefreshToken
 	for rows.Next() {
-		var rt RefreshToken
+		var rt m.RefreshToken
 		if err := rows.Scan(
 			&rt.ID,
 			&rt.UserGUID,
@@ -268,7 +271,7 @@ func getRefreshTokensByClient(db *pgxpool.Pool, userId string, clientIP string, 
 	return rts, nil
 }
 
-func getRefreshTokensByIP(db *pgxpool.Pool, userId string, clientIP string) ([]RefreshToken, error) {
+func getRefreshTokensByIP(db *pgxpool.Pool, userId string, clientIP string) ([]m.RefreshToken, error) {
 	rows, err := db.Query(
 		context.Background(),
 		`SELECT
@@ -282,9 +285,9 @@ func getRefreshTokensByIP(db *pgxpool.Pool, userId string, clientIP string) ([]R
 	}
 	defer rows.Close()
 
-	var rts []RefreshToken
+	var rts []m.RefreshToken
 	for rows.Next() {
-		var rt RefreshToken
+		var rt m.RefreshToken
 		if err := rows.Scan(
 			&rt.ID,
 			&rt.UserGUID,
@@ -308,7 +311,7 @@ func getRefreshTokensByIP(db *pgxpool.Pool, userId string, clientIP string) ([]R
 	return rts, nil
 }
 
-func getRefreshTokenByTokenID(db *pgxpool.Pool, tokenID string) (*RefreshToken, error) {
+func getRefreshTokenByTokenID(db *pgxpool.Pool, tokenID string) (*m.RefreshToken, error) {
 	row := db.QueryRow(
 		context.Background(),
 		`SELECT
@@ -318,7 +321,7 @@ func getRefreshTokenByTokenID(db *pgxpool.Pool, tokenID string) (*RefreshToken, 
 		tokenID,
 	)
 
-	var rt RefreshToken
+	var rt m.RefreshToken
 	err := row.Scan(
 		&rt.ID,
 		&rt.UserGUID,

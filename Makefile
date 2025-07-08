@@ -4,5 +4,5 @@ include $(ENV_FILE)
 export
 
 run:
-	go run .
+	go run cmd/server/main.go
 

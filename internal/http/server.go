@@ -1,4 +1,4 @@
-package main
+package http
 
 import (
 	"context"
@@ -7,26 +7,30 @@ import (
 	"net"
 	"net/http"
 
+	c "auth-jwt-assignment/config"
+	"auth-jwt-assignment/internal/auth"
+	rm "auth-jwt-assignment/pkg/rm"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Handler struct {
-	cfg *Config
+	cfg *c.Config
 	db  *pgxpool.Pool
 }
 
-func runServer(addr string, cfg *Config, db *pgxpool.Pool) error {
+func RunServer(addr string, cfg *c.Config, db *pgxpool.Pool) error {
 	h := &Handler{
 		cfg: cfg,
 		db:  db,
 	}
 
 	router := http.NewServeMux()
-	router.Handle("/auth/{guid}/login", MethodMapper{Post: h.login})
-	router.Handle("/auth/{guid}/logout", MethodMapper{Post: h.logout})
-	router.Handle("/auth/{guid}/refresh", MethodMapper{Post: h.protected(h.refresh)})
-	router.Handle("/auth/security/refresh-new-ip", MethodMapper{Post: securityDummyWebhook})
-	router.Handle("/whoami", MethodMapper{Get: h.protected(h.whoami)})
+	router.Handle("/auth/{guid}/login", rm.MethodMapper{Post: h.login})
+	router.Handle("/auth/{guid}/logout", rm.MethodMapper{Post: h.logout})
+	router.Handle("/auth/{guid}/refresh", rm.MethodMapper{Post: h.protected(h.refresh)})
+	router.Handle("/auth/security/refresh-new-ip", rm.MethodMapper{Post: securityDummyWebhook})
+	router.Handle("/whoami", rm.MethodMapper{Get: h.protected(h.whoami)})
 
 	log.Println("Starting server on:", addr)
 	return http.ListenAndServe(addr, router)
@@ -47,7 +51,7 @@ func (h *Handler) protected(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-		payload, err := ValidateAccessToken(h.cfg, atCookie.Value)
+		payload, err := auth.ValidateAccessToken(h.cfg, atCookie.Value)
 		if err != nil {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
@@ -66,36 +70,36 @@ func (h *Handler) protected(next http.HandlerFunc) http.HandlerFunc {
 
 func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 	guid := r.PathValue("guid")
-	accessToken, expires, err := IssueAccessToken(guid, h.cfg.Auth.AccessTokenLifetime, h.cfg.Auth.Secret)
+	accessToken, expires, err := auth.IssueAccessToken(guid, h.cfg.Auth.AccessTokenLifetime, h.cfg.Auth.Secret)
 	if err != nil {
 		log.Printf("ERROR: Couldn't issue access token: %v", err)
 		http.Error(w, "Server error", http.StatusInternalServerError)
 		return
 	}
-	SetTokenCookie(w, "access-token", accessToken, expires)
+	auth.SetTokenCookie(w, "access-token", accessToken, expires)
 
 	ip, _, _ := net.SplitHostPort(r.RemoteAddr) // Assuming http.Request.RemoteAddr is always valid
-	refreshToken, expires, err := IssueRefreshToken(h.db, guid, accessToken, r.UserAgent(), ip, h.cfg.Auth.RefreshTokenLifetime)
+	refreshToken, expires, err := auth.IssueRefreshToken(h.db, guid, accessToken, r.UserAgent(), ip, h.cfg.Auth.RefreshTokenLifetime)
 	if err != nil {
 		log.Printf("ERROR: Couldn't issue refresh token: %v", err)
 		http.Error(w, "Server error", http.StatusInternalServerError)
 		return
 	}
-	SetTokenCookie(w, "refresh-token", refreshToken, expires)
+	auth.SetTokenCookie(w, "refresh-token", refreshToken, expires)
 }
 
 func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 	guid := r.PathValue("guid")
 	ip, _, _ := net.SplitHostPort(r.RemoteAddr) // Assuming http.Request.RemoteAddr is always valid
-	err := RevokeRefreshTokensForClient(h.db, guid, ip, r.UserAgent())
+	err := auth.RevokeRefreshTokensForClient(h.db, guid, ip, r.UserAgent())
 	if err != nil {
 		log.Printf("ERROR: Couldn't revoke refresh token: %v", err)
 		http.Error(w, "Server error", http.StatusInternalServerError)
 		return
 	}
 
-	ResetTokenCookie(w, "access-token")
-	ResetTokenCookie(w, "refresh-token")
+	auth.ResetTokenCookie(w, "access-token")
+	auth.ResetTokenCookie(w, "refresh-token")
 }
 
 func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
@@ -105,7 +109,7 @@ func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
 	atRaw, _ := r.Context().Value("access-token").(string)
 	rtRaw, _ := r.Context().Value("refresh-token").(string)
 
-	rt, err := FetchRefreshTokenByRawToken(h.db, guid, rtRaw)
+	rt, err := auth.FetchRefreshTokenByRawToken(h.db, guid, rtRaw)
 	if err != nil {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
@@ -115,7 +119,7 @@ func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer func() {
-		err := RevokeRefreshToken(h.db, rt)
+		err := auth.RevokeRefreshToken(h.db, rt)
 		if err != nil {
 			log.Printf("ERROR: Couldn't revoke refresh token: %w", err)
 		}
@@ -126,40 +130,40 @@ func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if rt.UserAgent != userAgent {
-		ResetTokenCookie(w, "access-token")
-		ResetTokenCookie(w, "refresh-token")
+		auth.ResetTokenCookie(w, "access-token")
+		auth.ResetTokenCookie(w, "refresh-token")
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	if rt.IP != ip {
 		go func() {
-			err := NotifyRefreshFromNewIP(h.cfg.Auth.WebhookURL, guid, ip, rt.IP, userAgent)
+			err := auth.NotifyRefreshFromNewIP(h.cfg.Auth.WebhookURL, guid, ip, rt.IP, userAgent)
 			if err != nil {
 				log.Printf("ERROR: Failed to notify security service: %v", err)
 			}
 		}()
 	}
 
-	atNew, expires, err := IssueAccessToken(guid, h.cfg.Auth.AccessTokenLifetime, h.cfg.Auth.Secret)
+	atNew, expires, err := auth.IssueAccessToken(guid, h.cfg.Auth.AccessTokenLifetime, h.cfg.Auth.Secret)
 	if err != nil {
 		log.Printf("ERROR: Couldn't issue access token: %v", err)
 		http.Error(w, "Server error", http.StatusInternalServerError)
 		return
 	}
-	SetTokenCookie(w, "access-token", atNew, expires)
+	auth.SetTokenCookie(w, "access-token", atNew, expires)
 
-	rtNew, expires, err := IssueRefreshToken(h.db, guid, atNew, r.UserAgent(), ip, h.cfg.Auth.RefreshTokenLifetime)
+	rtNew, expires, err := auth.IssueRefreshToken(h.db, guid, atNew, r.UserAgent(), ip, h.cfg.Auth.RefreshTokenLifetime)
 	if err != nil {
 		log.Printf("ERROR: Couldn't issue refresh token: %v", err)
 		http.Error(w, "Server error", http.StatusInternalServerError)
 		return
 	}
-	SetTokenCookie(w, "refresh-token", rtNew, expires)
+	auth.SetTokenCookie(w, "refresh-token", rtNew, expires)
 }
 
 func (h *Handler) whoami(w http.ResponseWriter, r *http.Request) {
-	atp, ok := r.Context().Value("access-token-payload").(*AccessTokenPayload)
+	atp, ok := r.Context().Value("access-token-payload").(*auth.AccessTokenPayload)
 	if !ok {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
