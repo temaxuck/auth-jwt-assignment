@@ -22,19 +22,26 @@ import (
 
 const TOKEN_HASH_SIZE = 36 // = $(Bcrypt Max Password Length) / $(Chars Per byte) = 72 / 2
 
+// TODO: Create `/pkg/jwt/jwt.go` 
+// TODO: Put `IssueAccessToken` into `/pkg/jwt/jwt.go`
+// TODO: Use `AccessTokenPayload` instead of `jwt.MapClaims`
 func IssueAccessToken(guid string, lifetime time.Duration, secret []byte) (token string, expires time.Time, err error) {
 	expires = time.Now().Add(lifetime)
 	token, err = jwt.NewWithClaims(
 		jwt.SigningMethodHS512,
-		jwt.MapClaims{
-			"sub": guid,
-			"exp": expires.Unix(),
+		AccessTokenPayload{
+			jwt.RegisteredClaims{
+				ID: uuid.New().String(),
+			},
+			guid,
+			jwt.NewNumericDate(expires),
 		},
 	).SignedString(secret)
 
 	return token, expires, err
 }
 
+// TODO: Put `IssueRefreshToken` into TokenRepo
 func IssueRefreshToken(db *pgxpool.Pool, guid string, accessToken string, userAgent string, ip string, lifetime time.Duration) (token string, expires time.Time, err error) {
 	tokenID := uuid.New().String()
 	rawToken, err := generateRawToken()
@@ -58,6 +65,7 @@ func IssueRefreshToken(db *pgxpool.Pool, guid string, accessToken string, userAg
 	return base64.StdEncoding.EncodeToString([]byte(token)), expires, nil
 }
 
+// TODO: put `SetTokenCookie` into handler utilities
 func SetTokenCookie(w http.ResponseWriter, cookieName string, token string, expires time.Time) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     cookieName,
@@ -69,6 +77,7 @@ func SetTokenCookie(w http.ResponseWriter, cookieName string, token string, expi
 	})
 }
 
+// TODO: put `ResetTokenCookie` into handler utilities
 func ResetTokenCookie(w http.ResponseWriter, cookieName string) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     cookieName,
@@ -80,6 +89,9 @@ func ResetTokenCookie(w http.ResponseWriter, cookieName string) {
 	})
 }
 
+// TODO: Put `ValidateAccessToken` into `/pkg/jwt/jwt.go`
+// TODO: Pass UserRepo to validate the fact that refresh token GUID matches with the one from AT payload
+// TODO: Pass TokenRepo to validate the fact that refresh token is not revoked
 func ValidateAccessToken(cfg *c.Config, token string) (*AccessTokenPayload, error) {
 	t, err := jwt.ParseWithClaims(
 		token,
@@ -103,6 +115,7 @@ func ValidateAccessToken(cfg *c.Config, token string) (*AccessTokenPayload, erro
 	return p, nil
 }
 
+// TODO: Check if user agents match
 func ValidateRefreshToken(rt *m.RefreshToken) bool {
 	if rt.Revoked || rt.ExpiresAt.Before(time.Now()) {
 		return false
@@ -110,6 +123,8 @@ func ValidateRefreshToken(rt *m.RefreshToken) bool {
 
 	return true
 }
+
+
 
 func RevokeRefreshToken(db *pgxpool.Pool, t *m.RefreshToken) error {
 	return t.Update(db, map[string]any{

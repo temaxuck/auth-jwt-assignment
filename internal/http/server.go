@@ -14,6 +14,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// TODO: Put Handler logic into separate file, e.g. `internal/http/routes/auth.go`
+// TODO: Do not store db in the Handler, instead store TokenRepo
 type Handler struct {
 	cfg *c.Config
 	db  *pgxpool.Pool
@@ -37,6 +39,7 @@ func RunServer(addr string, cfg *c.Config, db *pgxpool.Pool) error {
 
 }
 
+// TODO: Move into middleware
 func (h *Handler) protected(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		atCookie, err := r.Cookie("access-token")
@@ -68,6 +71,7 @@ func (h *Handler) protected(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// TODO: Move issuing a pair of tokens into a separate function in `auth`
 func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 	guid := r.PathValue("guid")
 	accessToken, expires, err := auth.IssueAccessToken(guid, h.cfg.Auth.AccessTokenLifetime, h.cfg.Auth.Secret)
@@ -88,6 +92,8 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 	auth.SetTokenCookie(w, "refresh-token", refreshToken, expires)
 }
 
+// TODO: Blacklist Access Token
+// TODO: Put deauthorization logic into a separate method `auth.Deauthorize()`
 func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 	guid := r.PathValue("guid")
 	ip, _, _ := net.SplitHostPort(r.RemoteAddr) // Assuming http.Request.RemoteAddr is always valid
@@ -102,6 +108,8 @@ func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 	auth.ResetTokenCookie(w, "refresh-token")
 }
 
+// TODO: Blacklist Access Token
+// TODO: Move issuing a pair of tokens into a separate function in `auth`
 func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
 	guid := r.PathValue("guid")
 	ip, _, _ := net.SplitHostPort(r.RemoteAddr) // Assuming http.Request.RemoteAddr is always valid

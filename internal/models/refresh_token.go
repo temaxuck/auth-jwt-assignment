@@ -9,7 +9,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// NOTE: Normally I'd use ORM such as GORM, but for this simple case we're gonna do it manually
 type RefreshToken struct {
 	ID          string    `mqe:"id, UUID, PRIMARY KEY"`
 	UserGUID    string    `mqe:"user_id, UUID, NOT NULL"`
