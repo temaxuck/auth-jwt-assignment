@@ -1,9 +1,11 @@
-package morm
+package mqe
 
 import (
 	"errors"
 	"strings"
 )
+
+const MQE_GOLANG_TAG = "mqe"
 
 type ModelSQLTag struct {
 	SQLName string
