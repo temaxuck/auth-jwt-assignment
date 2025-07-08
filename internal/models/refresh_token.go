@@ -21,6 +21,7 @@ type RefreshToken struct {
 	Revoked     bool      `mqe:"revoked, BOOLEAN, NOT NULL, DEFAULT FALSE"`
 }
 
+// TODO: Move all of this logic into TokenRepo
 func (rt RefreshToken) TableName() string {
 	return "refresh_tokens"
 }

@@ -25,16 +25,15 @@ const TOKEN_HASH_SIZE = 36 // = $(Bcrypt Max Password Length) / $(Chars Per byte
 // TODO: Create `/pkg/jwt/jwt.go` 
 // TODO: Put `IssueAccessToken` into `/pkg/jwt/jwt.go`
 // TODO: Use `AccessTokenPayload` instead of `jwt.MapClaims`
+// TODO: Use `jwt.RegisteredClaims.ExpiredAt` for setting expiration date
+// TODO: Add `jwt.RegisteredClaims.ID` for blacklisting ATs
 func IssueAccessToken(guid string, lifetime time.Duration, secret []byte) (token string, expires time.Time, err error) {
 	expires = time.Now().Add(lifetime)
 	token, err = jwt.NewWithClaims(
 		jwt.SigningMethodHS512,
-		AccessTokenPayload{
-			jwt.RegisteredClaims{
-				ID: uuid.New().String(),
-			},
-			guid,
-			jwt.NewNumericDate(expires),
+		jwt.MapClaims{
+			"sub": guid,
+			"exp": expires.Unix(),
 		},
 	).SignedString(secret)
 
@@ -90,8 +89,7 @@ func ResetTokenCookie(w http.ResponseWriter, cookieName string) {
 }
 
 // TODO: Put `ValidateAccessToken` into `/pkg/jwt/jwt.go`
-// TODO: Pass UserRepo to validate the fact that refresh token GUID matches with the one from AT payload
-// TODO: Pass TokenRepo to validate the fact that refresh token is not revoked
+// TODO: Check if jti is blacklisted
 func ValidateAccessToken(cfg *c.Config, token string) (*AccessTokenPayload, error) {
 	t, err := jwt.ParseWithClaims(
 		token,
@@ -115,6 +113,7 @@ func ValidateAccessToken(cfg *c.Config, token string) (*AccessTokenPayload, erro
 	return p, nil
 }
 
+// TODO: Pass `AccessTokenPayload` to validate the fact that refresh token GUIDs match
 // TODO: Check if user agents match
 func ValidateRefreshToken(rt *m.RefreshToken) bool {
 	if rt.Revoked || rt.ExpiresAt.Before(time.Now()) {
@@ -124,14 +123,17 @@ func ValidateRefreshToken(rt *m.RefreshToken) bool {
 	return true
 }
 
+// TODO: Add func Deauthorize
+// TODO: Add func Blacklist
 
-
+// TODO: Think about blacklisting AT along with revokation RT
 func RevokeRefreshToken(db *pgxpool.Pool, t *m.RefreshToken) error {
 	return t.Update(db, map[string]any{
 		"Revoked": true,
 	})
 }
 
+// TODO: Remove, for not needed
 func RevokeRefreshTokensForClient(db *pgxpool.Pool, userId string, clientIP string, clientUA string) error {
 	rts, err := m.RefreshTokenAll(db, map[string]any{
 		"UserGUID":  userId,
@@ -144,6 +146,7 @@ func RevokeRefreshTokensForClient(db *pgxpool.Pool, userId string, clientIP stri
 	return revokeRefreshTokens(db, rts)
 }
 
+// TODO: Remove, for not needed
 func RevokeRefreshTokensForIP(db *pgxpool.Pool, userId string, clientIP string) error {
 	rts, err := m.RefreshTokenAll(db, map[string]any{
 		"UserGUID": userId,
@@ -155,6 +158,7 @@ func RevokeRefreshTokensForIP(db *pgxpool.Pool, userId string, clientIP string) 
 	return revokeRefreshTokens(db, rts)
 }
 
+// TODO: Move ecoding logic to `DecodeRawRefreshToken`
 func FetchRefreshTokenByRawToken(db *pgxpool.Pool, guid string, tokenStringB64 string) (*m.RefreshToken, error) {
 	decodedToken, err := base64.StdEncoding.DecodeString(tokenStringB64)
 	if err != nil {
@@ -195,6 +199,7 @@ func NotifyRefreshFromNewIP(url, userID, newIP, oldIP, userAgent string) error {
 	return nil
 }
 
+// TODO: Remove, for not needed
 func revokeRefreshTokens(db *pgxpool.Pool, rts []m.RefreshToken) error {
 	for _, rt := range rts {
 		err := RevokeRefreshToken(db, &rt)
@@ -205,6 +210,8 @@ func revokeRefreshTokens(db *pgxpool.Pool, rts []m.RefreshToken) error {
 	return nil
 }
 
+// TODO: Do not accept `rawToken` value, instead accept `hashedToken` string
+// TODO: Move to TokenRepo
 func newRefreshToken(tokenID string, userID string, rawToken string, accessToken string, userAgent string, ip string, expiresAt time.Time, createdAt time.Time, revoked bool) (*m.RefreshToken, error) {
 	t := &m.RefreshToken{}
 	hashedToken, err := hashToken(rawToken)
