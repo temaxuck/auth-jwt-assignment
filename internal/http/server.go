@@ -45,7 +45,7 @@ func (h *Handler) protected(next http.HandlerFunc) http.HandlerFunc {
 			case http.ErrNoCookie:
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			default:
-				log.Printf("ERROR: Couldn't get access token: %v", err)
+				log.Printf("ERROR: %v", err)
 				http.Error(w, "Server error", http.StatusInternalServerError)
 			}
 			return
@@ -72,7 +72,7 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 	guid := r.PathValue("guid")
 	accessToken, expires, err := auth.IssueAccessToken(guid, h.cfg.Auth.AccessTokenLifetime, h.cfg.Auth.Secret)
 	if err != nil {
-		log.Printf("ERROR: Couldn't issue access token: %v", err)
+		log.Printf("ERROR: %v", err)
 		http.Error(w, "Server error", http.StatusInternalServerError)
 		return
 	}
@@ -81,7 +81,7 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 	ip, _, _ := net.SplitHostPort(r.RemoteAddr) // Assuming http.Request.RemoteAddr is always valid
 	refreshToken, expires, err := auth.IssueRefreshToken(h.db, guid, accessToken, r.UserAgent(), ip, h.cfg.Auth.RefreshTokenLifetime)
 	if err != nil {
-		log.Printf("ERROR: Couldn't issue refresh token: %v", err)
+		log.Printf("ERROR: %v", err)
 		http.Error(w, "Server error", http.StatusInternalServerError)
 		return
 	}
@@ -93,7 +93,7 @@ func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 	ip, _, _ := net.SplitHostPort(r.RemoteAddr) // Assuming http.Request.RemoteAddr is always valid
 	err := auth.RevokeRefreshTokensForClient(h.db, guid, ip, r.UserAgent())
 	if err != nil {
-		log.Printf("ERROR: Couldn't revoke refresh token: %v", err)
+		log.Printf("ERROR: %v", err)
 		http.Error(w, "Server error", http.StatusInternalServerError)
 		return
 	}
@@ -111,6 +111,7 @@ func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
 
 	rt, err := auth.FetchRefreshTokenByRawToken(h.db, guid, rtRaw)
 	if err != nil {
+		log.Printf("ERROR: %v", err)
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -121,7 +122,7 @@ func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		err := auth.RevokeRefreshToken(h.db, rt)
 		if err != nil {
-			log.Printf("ERROR: Couldn't revoke refresh token: %w", err)
+			log.Printf("ERROR: %v", err)
 		}
 	}()
 
@@ -147,7 +148,7 @@ func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
 
 	atNew, expires, err := auth.IssueAccessToken(guid, h.cfg.Auth.AccessTokenLifetime, h.cfg.Auth.Secret)
 	if err != nil {
-		log.Printf("ERROR: Couldn't issue access token: %v", err)
+		log.Printf("ERROR: %v", err)
 		http.Error(w, "Server error", http.StatusInternalServerError)
 		return
 	}
@@ -155,7 +156,7 @@ func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
 
 	rtNew, expires, err := auth.IssueRefreshToken(h.db, guid, atNew, r.UserAgent(), ip, h.cfg.Auth.RefreshTokenLifetime)
 	if err != nil {
-		log.Printf("ERROR: Couldn't issue refresh token: %v", err)
+		log.Printf("ERROR: %v", err)
 		http.Error(w, "Server error", http.StatusInternalServerError)
 		return
 	}
@@ -173,7 +174,7 @@ func (h *Handler) whoami(w http.ResponseWriter, r *http.Request) {
 	data := map[string]string{"GUID": atp.UserGUID}
 	response, err := json.Marshal(data)
 	if err != nil {
-		log.Printf("Couldn't marshal data: %w", err)
+		log.Printf("ERROR: %v", err)
 		http.Error(w, "Server error", http.StatusInternalServerError)
 		return
 	}
@@ -190,7 +191,7 @@ func securityDummyWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		log.Printf("ERROR: Failed to unmarshal request body: %v", err)
+		log.Printf("ERROR: %v", err)
 		http.Error(w, "Invalid payload", http.StatusBadRequest)
 		return
 	}
