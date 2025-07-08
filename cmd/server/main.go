@@ -7,24 +7,24 @@ import (
 	"os"
 
 	c "auth-jwt-assignment/config"
-	db "auth-jwt-assignment/internal/db"
 	"auth-jwt-assignment/internal/http"
+	pg "auth-jwt-assignment/internal/postgres"
 )
 
 func main() {
 	addr := parseAddrFromCli()
 	cfg := c.NewConfig()
-	pg, err := db.ConnectDB(cfg)
+	db, err := pg.ConnectDB(cfg)
 	if err != nil {
 		log.Fatalf("ERROR: %v", err)
 		os.Exit(1)
 	}
-	if err := db.InitDB(pg); err != nil {
+	if err := pg.InitDB(db); err != nil {
 		log.Fatalf("ERROR: %v", err)
 		os.Exit(1)
 	}
 
-	log.Fatal(http.RunServer(addr, cfg, pg))
+	log.Fatal(http.RunServer(addr, cfg, db))
 }
 
 func parseAddrFromCli() string {
