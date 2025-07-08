@@ -86,18 +86,18 @@ func ValidateAccessToken(cfg *c.Config, token string) (*AccessTokenPayload, erro
 		&AccessTokenPayload{},
 		func(t *jwt.Token) (interface{}, error) {
 			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, fmt.Errorf("Unexpected signing method: %w", t.Header["alg"])
+				return nil, fmt.Errorf("unexpected signing method: %s", t.Header["alg"])
 			}
 			return cfg.Auth.Secret, nil
 		},
 	)
 	if err != nil {
-		return nil, fmt.Errorf("Validation failed: %v", err)
+		return nil, fmt.Errorf("validation failed: %v", err)
 	}
 
 	p, ok := t.Claims.(*AccessTokenPayload)
 	if !ok || !t.Valid {
-		return nil, fmt.Errorf("Invalid token")
+		return nil, fmt.Errorf("invalid token")
 	}
 
 	return p, nil
