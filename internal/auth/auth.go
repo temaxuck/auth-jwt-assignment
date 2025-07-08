@@ -2,7 +2,6 @@ package auth
 
 import (
 	"bytes"
-	"context"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -104,13 +103,18 @@ func ValidateAccessToken(cfg *c.Config, token string) (*AccessTokenPayload, erro
 	return p, nil
 }
 
+func ValidateRefreshToken(rt *m.RefreshToken) bool {
+	if rt.Revoked || rt.ExpiresAt.Before(time.Now()) {
+		return false
+	}
+
+	return true
+}
+
 func RevokeRefreshToken(db *pgxpool.Pool, t *m.RefreshToken) error {
-	_, err := db.Exec(
-		context.Background(),
-		`UPDATE refresh_tokens SET revoked = true WHERE id=$1`,
-		t.ID,
-	)
-	return err
+	return t.Update(db, map[string]any{
+		"Revoked": true,
+	})
 }
 
 func RevokeRefreshTokensForClient(db *pgxpool.Pool, userId string, clientIP string, clientUA string) error {

@@ -115,7 +115,7 @@ func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-	if rt.Revoked {
+	if !auth.ValidateRefreshToken(rt) {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}

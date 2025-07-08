@@ -66,12 +66,16 @@ func (rt *RefreshToken) Insert(db *pgxpool.Pool) error {
 func RefreshTokenFirst(db *pgxpool.Pool, filters map[string]any) (*RefreshToken, error) {
 	rt := RefreshToken{}
 	tableName := rt.TableName()
-	whereClauses, args, err := parseFilters(&rt, filters)
+	columns, err := mqe.GetColumns(rt, false)
+	if err != nil {
+		return nil, err
+	}
+	whereClauses, args, _, err := parseClauseExpr(&rt, filters, -1)
 	if err != nil {
 		return nil, err
 	}
 
-	query := fmt.Sprintf("SELECT * FROM %s", tableName)
+	query := fmt.Sprintf("SELECT %s FROM %s", strings.Join(columns, ", "), tableName)
 	if len(whereClauses) > 0 {
 		query += " WHERE " + strings.Join(whereClauses, " AND ")
 	}
@@ -94,14 +98,18 @@ func RefreshTokenFirst(db *pgxpool.Pool, filters map[string]any) (*RefreshToken,
 func RefreshTokenAll(db *pgxpool.Pool, filters map[string]any) ([]RefreshToken, error) {
 	rt := RefreshToken{}
 	tableName := rt.TableName()
-	whereClauses, args, err := parseFilters(&rt, filters)
+	columns, err := mqe.GetColumns(rt, false)
+	if err != nil {
+		return nil, err
+	}
+	whereClauses, args, _, err := parseClauseExpr(&rt, filters, -1)
 	if err != nil {
 		return nil, err
 	}
 
-	query := fmt.Sprintf("SELECT * FROM %s", tableName)
+	query := fmt.Sprintf("SELECT %s FROM %s", strings.Join(columns, ", "), tableName)
 	if len(whereClauses) > 0 {
-		query += " WHERE " + strings.Join(whereClauses, " AND ")
+		query = fmt.Sprintf("%s WHERE %s", query, strings.Join(whereClauses, " AND "))
 	}
 
 	rows, err := db.Query(context.Background(), query, args...)
@@ -135,25 +143,49 @@ func RefreshTokenAll(db *pgxpool.Pool, filters map[string]any) ([]RefreshToken, 
 	return rts, nil
 }
 
-func parseFilters(rt *RefreshToken, filters map[string]any) ([]string, []interface{}, error) {
-	columns, err := mqe.GetFC(rt)
+func (rt *RefreshToken) Update(db *pgxpool.Pool, newValues map[string]any) error {
+	tableName := rt.TableName()
+	setClauses, setArgs, setArgc, err := parseClauseExpr(rt, newValues, -1)
 	if err != nil {
-		return nil, nil, err
+		return err
+	}
+	if len(setClauses) == 0 {
+		return fmt.Errorf("set clause cannot be empty")
 	}
 
-	var whereClauses []string
-	var args []interface{}
-	argc := 1
+	query := fmt.Sprintf("UPDATE %s SET %s WHERE id=$%d", tableName, strings.Join(setClauses, ", "), setArgc)
+	args := append(setArgs, rt.ID)
+	if _, err := db.Exec(context.Background(), query, args...); err != nil {
+		return fmt.Errorf("failed to update: %w", err)
+	}
 
-	for c, v := range filters {
-		sqlCol, ok := columns[c]
+	return nil
+}
+
+func parseClauseExpr(rt *RefreshToken, fv map[string]any, startArgc int) ([]string, []interface{}, int, error) {
+	fc, err := mqe.GetFC(rt)
+	if err != nil {
+		return nil, nil, -1, err
+	}
+
+	var clauses []string
+	var args []interface{}
+	var argc int
+	if startArgc < 1 {
+		argc = 1
+	} else {
+		argc = startArgc
+	}
+
+	for c, v := range fv {
+		sqlCol, ok := fc[c]
 		if !ok {
-			return nil, nil, fmt.Errorf("invalid column %s", c)
+			return nil, nil, -1, fmt.Errorf("invalid column %s", c)
 		}
-		whereClauses = append(whereClauses, fmt.Sprintf("%q = $%d", sqlCol, argc))
+		clauses = append(clauses, fmt.Sprintf("%q = $%d", sqlCol, argc))
 		args = append(args, v)
 		argc++
 	}
 
-	return whereClauses, args, nil
+	return clauses, args, argc, nil
 }
