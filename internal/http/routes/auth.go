@@ -40,8 +40,6 @@ func (h *AuthRouter) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Println(rt.ExpiresAt)
-
 	atString, atPayload, err := h.jwt.GenerateToken(userID, rt.ID)
 	if err != nil {
 		log.Printf("ERROR: %v", err)
