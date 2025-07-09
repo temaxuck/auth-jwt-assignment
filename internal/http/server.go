@@ -12,8 +12,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// TODO: Put Handler logic into separate file, e.g. `internal/http/routes/auth.go`
-// TODO: Do not store db in the Handler, instead store TokenRepo
 type Server struct {
 	addr string
 	cfg  *c.Config

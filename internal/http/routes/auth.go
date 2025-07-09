@@ -59,7 +59,6 @@ func (h *AuthRouter) logout(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// TODO: Move issuing a pair of tokens into a separate function in `auth`
 func (h *AuthRouter) refresh(w http.ResponseWriter, r *http.Request) {
 	userID := r.PathValue("guid")
 	atPayload, _ := r.Context().Value("access-token-payload").(*jwt.AccessTokenPayload)
