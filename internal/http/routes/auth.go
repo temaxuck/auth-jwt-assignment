@@ -100,6 +100,9 @@ func (h *AuthRouter) refresh(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if rt.IP != ip {
+		// ALERT: This doesn't make sure that server will actually notify the security service.
+		//        For this specific assignment I didn't implement graceful shutdown of this app
+		//        which would make sure that all of the background tasks either completed or failed
 		go func() {
 			err := h.service.NotifyRefreshFromNewIP(h.notificationWebhookURL, userID, ip, rt.IP, userAgent)
 			if err != nil {
