@@ -2,66 +2,37 @@ package auth
 
 import (
 	"bytes"
-	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"math/rand"
 	"net/http"
-	"strings"
 	"time"
 
-	c "auth-jwt-assignment/config"
 	m "auth-jwt-assignment/internal/models"
+	"auth-jwt-assignment/internal/repo"
+	"auth-jwt-assignment/pkg/jwt"
+	"auth-jwt-assignment/pkg/twc"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"golang.org/x/crypto/bcrypt"
 )
 
-const TOKEN_HASH_SIZE = 36 // = $(Bcrypt Max Password Length) / $(Chars Per byte) = 72 / 2
-
-// TODO: Create `/pkg/jwt/jwt.go` 
-// TODO: Put `IssueAccessToken` into `/pkg/jwt/jwt.go`
-// TODO: Use `AccessTokenPayload` instead of `jwt.MapClaims`
-// TODO: Use `jwt.RegisteredClaims.ExpiredAt` for setting expiration date
-// TODO: Add `jwt.RegisteredClaims.ID` for blacklisting ATs
-func IssueAccessToken(guid string, lifetime time.Duration, secret []byte) (token string, expires time.Time, err error) {
-	expires = time.Now().Add(lifetime)
-	token, err = jwt.NewWithClaims(
-		jwt.SigningMethodHS512,
-		jwt.MapClaims{
-			"sub": guid,
-			"exp": expires.Unix(),
-		},
-	).SignedString(secret)
-
-	return token, expires, err
-}
-
-// TODO: Put `IssueRefreshToken` into TokenRepo
-func IssueRefreshToken(db *pgxpool.Pool, guid string, accessToken string, userAgent string, ip string, lifetime time.Duration) (token string, expires time.Time, err error) {
+func IssueRefreshToken(r *repo.TokenRepo, guid string, userAgent string, ip string) (token string, rt *m.RefreshToken, err error) {
 	tokenID := uuid.New().String()
-	rawToken, err := generateRawToken()
+	tp, err := twc.New(tokenID)
 	if err != nil {
-		return "", time.Time{}, err
+		return "", nil, fmt.Errorf("failed to generate token web container: %w", err)
+	}
+	tokenB64, tokenHash, err := tp.Encode()
+	if err != nil {
+		return "", nil, err
 	}
 
-	now := time.Now()
-	expires = now.Add(lifetime)
-	t, err := newRefreshToken(tokenID, guid, rawToken, accessToken, userAgent, ip, now, expires, false)
+	rt, err = r.CreateRefreshToken(tokenID, guid, tokenHash, userAgent, ip)
 	if err != nil {
-		return "", time.Time{}, err
+		return "", nil, err
 	}
 
-	err = t.Insert(db)
-	if err != nil {
-		return "", time.Time{}, err
-	}
-
-	token = fmt.Sprintf("%s:%s", tokenID, rawToken)
-	return base64.StdEncoding.EncodeToString([]byte(token)), expires, nil
+	return tokenB64, rt, nil
 }
 
 // TODO: put `SetTokenCookie` into handler utilities
@@ -88,96 +59,51 @@ func ResetTokenCookie(w http.ResponseWriter, cookieName string) {
 	})
 }
 
-// TODO: Put `ValidateAccessToken` into `/pkg/jwt/jwt.go`
-// TODO: Check if jti is blacklisted
-func ValidateAccessToken(cfg *c.Config, token string) (*AccessTokenPayload, error) {
-	t, err := jwt.ParseWithClaims(
-		token,
-		&AccessTokenPayload{},
-		func(t *jwt.Token) (interface{}, error) {
-			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, fmt.Errorf("unexpected signing method: %s", t.Header["alg"])
-			}
-			return cfg.Auth.Secret, nil
-		},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("validation failed: %v", err)
-	}
-
-	p, ok := t.Claims.(*AccessTokenPayload)
-	if !ok || !t.Valid {
-		return nil, fmt.Errorf("invalid token")
-	}
-
-	return p, nil
-}
-
-// TODO: Pass `AccessTokenPayload` to validate the fact that refresh token GUIDs match
-// TODO: Check if user agents match
-func ValidateRefreshToken(rt *m.RefreshToken) bool {
-	if rt.Revoked || rt.ExpiresAt.Before(time.Now()) {
+func ValidateRefreshToken(rt *m.RefreshToken, at *jwt.AccessTokenPayload) bool {
+	if rt.Revoked ||
+		rt.ID != at.RefreshTokenID ||
+		rt.UserGUID != at.Subject ||
+		rt.ExpiresAt.Before(time.Now()) {
 		return false
 	}
 
 	return true
 }
 
-// TODO: Add func Deauthorize
-// TODO: Add func Blacklist
+func Deauthorize(r *repo.TokenRepo, at *jwt.AccessTokenPayload, rt *m.RefreshToken) error {
+	var errs []error
 
-// TODO: Think about blacklisting AT along with revokation RT
-func RevokeRefreshToken(db *pgxpool.Pool, t *m.RefreshToken) error {
-	return t.Update(db, map[string]any{
-		"Revoked": true,
-	})
-}
-
-// TODO: Remove, for not needed
-func RevokeRefreshTokensForClient(db *pgxpool.Pool, userId string, clientIP string, clientUA string) error {
-	rts, err := m.RefreshTokenAll(db, map[string]any{
-		"UserGUID":  userId,
-		"IP":        clientIP,
-		"UserAgent": clientUA,
-	})
-	if err != nil {
-		return err
+	if at != nil {
+		if err := r.BlacklistAccessToken(at); err != nil {
+			errs = append(errs, fmt.Errorf("failed to blacklist access token: %w", err))
+		}
 	}
-	return revokeRefreshTokens(db, rts)
-}
-
-// TODO: Remove, for not needed
-func RevokeRefreshTokensForIP(db *pgxpool.Pool, userId string, clientIP string) error {
-	rts, err := m.RefreshTokenAll(db, map[string]any{
-		"UserGUID": userId,
-		"IP":       clientIP,
-	})
-	if err != nil {
-		return err
+	if rt != nil {
+		if err := r.RevokeRefreshToken(rt); err != nil {
+			errs = append(errs, fmt.Errorf("failed to revoke refresh token: %w", err))
+		}
 	}
-	return revokeRefreshTokens(db, rts)
+
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+
+	return nil
 }
 
-// TODO: Move ecoding logic to `DecodeRawRefreshToken`
-func FetchRefreshTokenByRawToken(db *pgxpool.Pool, guid string, tokenStringB64 string) (*m.RefreshToken, error) {
-	decodedToken, err := base64.StdEncoding.DecodeString(tokenStringB64)
+func ExtractRefreshToken(r *repo.TokenRepo, tokenB64 string) (*m.RefreshToken, error) {
+	tp, err := twc.Decode(tokenB64)
 	if err != nil {
 		return nil, err
 	}
-	tokenParts := strings.SplitN(string(decodedToken), ":", 2)
-	if len(tokenParts) != 2 {
-		return nil, fmt.Errorf("invalid token format")
-	}
-	tokenID := tokenParts[0]
-	rawToken := tokenParts[1]
 
-	rt, err := m.RefreshTokenFirst(db, map[string]any{"ID": tokenID})
+	rt, err := r.GetRefreshTokenByID(tp.TokenID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch refresh token: %w", err)
 	}
 
-	if err = bcrypt.CompareHashAndPassword([]byte(rt.TokenHash), []byte(rawToken)); err != nil {
-		return nil, fmt.Errorf("invalid refresh token")
+	if err = tp.Validate(rt.TokenHash); err != nil {
+		return nil, fmt.Errorf("invalid refresh token: %w", err)
 	}
 
 	return rt, nil
@@ -197,51 +123,4 @@ func NotifyRefreshFromNewIP(url, userID, newIP, oldIP, userAgent string) error {
 	}
 
 	return nil
-}
-
-// TODO: Remove, for not needed
-func revokeRefreshTokens(db *pgxpool.Pool, rts []m.RefreshToken) error {
-	for _, rt := range rts {
-		err := RevokeRefreshToken(db, &rt)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// TODO: Do not accept `rawToken` value, instead accept `hashedToken` string
-// TODO: Move to TokenRepo
-func newRefreshToken(tokenID string, userID string, rawToken string, accessToken string, userAgent string, ip string, expiresAt time.Time, createdAt time.Time, revoked bool) (*m.RefreshToken, error) {
-	t := &m.RefreshToken{}
-	hashedToken, err := hashToken(rawToken)
-	if err != nil {
-		return t, err
-	}
-
-	t.ID = tokenID
-	t.UserGUID = userID
-	t.TokenHash = hashedToken
-	t.AccessToken = accessToken
-	t.UserAgent = userAgent
-	t.IP = ip
-	t.ExpiresAt = expiresAt
-	t.CreatedAt = createdAt
-	t.Revoked = revoked
-
-	return t, nil
-}
-
-func generateRawToken() (string, error) {
-	bytes := make([]byte, TOKEN_HASH_SIZE)
-	_, err := rand.Read(bytes)
-	if err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(bytes), err
-}
-
-func hashToken(token string) (string, error) {
-	hash, err := bcrypt.GenerateFromPassword([]byte(token), bcrypt.DefaultCost)
-	return string(hash), err
 }
