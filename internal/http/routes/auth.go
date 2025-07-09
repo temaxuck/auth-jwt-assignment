@@ -4,6 +4,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"time"
 
 	"auth-jwt-assignment/internal/auth"
 	mw "auth-jwt-assignment/internal/http/middleware"
@@ -29,32 +30,20 @@ func NewAuthRouter(jwt *jwt.JWT, r *repo.TokenRepo, webhookURL string) *http.Ser
 	return mux
 }
 
-// TODO: Move issuing a pair of tokens into a separate function in `auth`
 func (h *AuthRouter) login(w http.ResponseWriter, r *http.Request) {
 	userID := r.PathValue("guid")
 	ip, _, _ := net.SplitHostPort(r.RemoteAddr) // Assuming http.Request.RemoteAddr is always valid
-	rtString, rt, err := auth.IssueRefreshToken(h.r, userID, r.UserAgent(), ip)
+	at, atString, rt, rtString, err := auth.IssueTokenPair(h.r, h.jwt, userID, r.UserAgent(), ip)
 	if err != nil {
 		log.Printf("ERROR: %v", err)
 		http.Error(w, "Server error", http.StatusInternalServerError)
 		return
 	}
-
-	atString, atPayload, err := h.jwt.GenerateToken(userID, rt.ID)
-	if err != nil {
-		log.Printf("ERROR: %v", err)
-		http.Error(w, "Server error", http.StatusInternalServerError)
-		return
-	}
-	auth.SetTokenCookie(w, "access-token", atString, atPayload.GetExpiresAt())
-	auth.SetTokenCookie(w, "refresh-token", rtString, rt.ExpiresAt)
+	setTokenPairCookies(w, atString, at.GetExpiresAt(), rtString, rt.ExpiresAt)
 }
 
 func (h *AuthRouter) logout(w http.ResponseWriter, r *http.Request) {
-	defer func() {
-		auth.ResetTokenCookie(w, "access-token")
-		auth.ResetTokenCookie(w, "refresh-token")
-	}()
+	defer resetTokenPairCookies(w)
 
 	atCookie, _ := r.Cookie("access-token")
 	atPayload, _ := h.jwt.ValidateToken(atCookie.Value)
@@ -105,8 +94,7 @@ func (h *AuthRouter) refresh(w http.ResponseWriter, r *http.Request) {
 			log.Printf("ERROR: failed to revoke tokens for user [%s; %s]: %v", userID, ip, err)
 		}
 
-		auth.ResetTokenCookie(w, "access-token")
-		auth.ResetTokenCookie(w, "refresh-token")
+		resetTokenPairCookies(w)
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -120,21 +108,21 @@ func (h *AuthRouter) refresh(w http.ResponseWriter, r *http.Request) {
 		}()
 	}
 
-	rtNewString, rtNew, err := auth.IssueRefreshToken(h.r, userID, r.UserAgent(), ip)
+	at, atString, rt, rtString, err := auth.IssueTokenPair(h.r, h.jwt, userID, r.UserAgent(), ip)
 	if err != nil {
 		log.Printf("ERROR: %v", err)
 		http.Error(w, "Server error", http.StatusInternalServerError)
 		return
 	}
+	setTokenPairCookies(w, atString, at.GetExpiresAt(), rtString, rt.ExpiresAt)
+}
 
-	atNew, atNewPayload, err := h.jwt.GenerateToken(userID, rtNew.ID)
-	if err != nil {
-		log.Printf("ERROR: %v", err)
-		http.Error(w, "Server error", http.StatusInternalServerError)
-		return
-	}
+func setTokenPairCookies(w http.ResponseWriter, at string, atExpiresAt time.Time, rt string, rtExpiresAt time.Time) {
+	setTokenCookie(w, "access-token", at, atExpiresAt)
+	setTokenCookie(w, "refresh-token", rt, rtExpiresAt)
+}
 
-	auth.SetTokenCookie(w, "access-token", atNew, atNewPayload.GetExpiresAt())
-	auth.SetTokenCookie(w, "refresh-token", rtNewString, rt.ExpiresAt)
-
+func resetTokenPairCookies(w http.ResponseWriter) {
+	resetCookie(w, "access-token")
+	resetCookie(w, "refresh-token")
 }
