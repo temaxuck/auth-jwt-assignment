@@ -17,10 +17,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	tr := repo.NewTokenRepo(db, cfg.Auth.RefreshTokenTTL)
+	tr := repo.NewTokenRepo(db)
 	err = tr.InitDBState()
 	if err != nil {
 		log.Fatalf("ERROR: %v", err)
 		os.Exit(1)
 	}
+
+	log.Printf("INFO: Successfully initialized database")
 }
