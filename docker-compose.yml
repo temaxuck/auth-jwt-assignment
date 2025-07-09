@@ -1,0 +1,33 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    env_file: .env 
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-admin}
+      POSTGRES_DB: ${POSTGRES_DB:-authdb}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file: .env 
+    environment:
+      POSTGRES_URL: "postgres://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-admin}@postgres:5432/${POSTGRES_DB:-authdb}"
+      SECRET_KEY: ${SECRET_KEY:-secret_key_for_development}
+      WEBHOOK_URL: ${WEBHOOK_URL:-http://app:8080/security/refresh-new-ip}
+      ACCESS_TOKEN_TTL_SECONDS: ${ACCESS_TOKEN_TTL_SECONDS:-900}
+      REFRESH_TOKEN_TTL_SECONDS: ${REFRESH_TOKEN_TTL_SECONDS:-86400}
+      POSTGRES_POOL_SIZE: ${POSTGRES_POOL_SIZE:-1}
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    depends_on:
+      - postgres
+
+volumes:
+  db_data:
