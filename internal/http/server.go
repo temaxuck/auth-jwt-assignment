@@ -37,6 +37,6 @@ func (s *Server) RunServer() error {
 	mux.Handle("/auth/", http.StripPrefix("/auth", routes.NewAuthRouter(as, s.cfg.Auth.WebhookURL)))
 	mux.Handle("/security/", http.StripPrefix("/security", routes.NewSecurityRouter()))
 
-	log.Println("Starting server on:", s.addr)
+	log.Println("INFO: Starting server on:", s.addr)
 	return http.ListenAndServe(s.addr, mux)
 }
