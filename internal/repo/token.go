@@ -90,7 +90,7 @@ func (r *TokenRepo) RevokeRefreshToken(rt *m.RefreshToken) error {
 }
 
 func (r *TokenRepo) RevokeRefreshTokensForUserIP(userID string, ip string) error {
-	query := `UPDATE refresh_tokens SET "revoked"=true WHERE "id"=$1 AND "ip"=$2;`
+	query := `UPDATE refresh_tokens SET "revoked"=true WHERE "user_id"=$1 AND "ip"=$2;`
 	_, err := r.db.Exec(context.Background(), query, userID, ip)
 	if err != nil {
 		return err
