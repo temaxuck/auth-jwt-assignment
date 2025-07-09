@@ -3,23 +3,19 @@ package repo
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	m "auth-jwt-assignment/internal/models"
-	"auth-jwt-assignment/pkg/jwt"
 )
 
 type TokenRepo struct {
-	db              *pgxpool.Pool
-	RefreshTokenTTL time.Duration
+	db *pgxpool.Pool
 }
 
-func NewTokenRepo(db *pgxpool.Pool, refreshTokenTTL time.Duration) *TokenRepo {
+func NewTokenRepo(db *pgxpool.Pool) *TokenRepo {
 	return &TokenRepo{
-		db:              db,
-		RefreshTokenTTL: refreshTokenTTL,
+		db: db,
 	}
 }
 
@@ -48,11 +44,7 @@ func (r *TokenRepo) InitDBState() error {
 	return nil
 }
 
-func (r *TokenRepo) CreateRefreshToken(tokenID string, userID string, tokenHash string, userAgent string, ip string) (*m.RefreshToken, error) {
-	now := time.Now()
-	expires := now.Add(r.RefreshTokenTTL)
-	rt := m.NewRefreshToken(tokenID, userID, tokenHash, userAgent, ip, now, expires, false)
-
+func (r *TokenRepo) CreateRefreshToken(rt *m.RefreshToken) error {
 	query := `
     INSERT INTO refresh_tokens (
         id, user_id, token_hash, user_agent, ip, created_at, expires_at, revoked
@@ -63,11 +55,7 @@ func (r *TokenRepo) CreateRefreshToken(tokenID string, userID string, tokenHash 
 		rt.ID, rt.UserGUID, rt.TokenHash, rt.UserAgent,
 		rt.IP, rt.CreatedAt, rt.ExpiresAt, rt.Revoked,
 	)
-	if err != nil {
-		return nil, err
-	}
-
-	return rt, nil
+	return err
 }
 
 func (r *TokenRepo) GetRefreshTokenByID(tokenID string) (*m.RefreshToken, error) {
@@ -111,14 +99,14 @@ func (r *TokenRepo) RevokeRefreshTokensForUserIP(userID string, ip string) error
 	return nil
 }
 
-func (r *TokenRepo) BlacklistAccessToken(at *jwt.AccessTokenPayload) error {
+func (r *TokenRepo) BlacklistAccessToken(at *m.AccessToken) error {
 	query := `INSERT INTO at_blacklist (jti, expires_at) VALUES ($1, $2);`
-	_, err := r.db.Exec(context.Background(), query, at.ID, at.GetExpiresAt())
+	_, err := r.db.Exec(context.Background(), query, at.ID, at.ExpiresAt)
 
 	return err
 }
 
-func (r *TokenRepo) CheckIfAccessTokenBlacklisted(at *jwt.AccessTokenPayload) (bool, error) {
+func (r *TokenRepo) CheckIfAccessTokenBlacklisted(at *m.AccessToken) (bool, error) {
 	query := `SELECT EXISTS (SELECT 1 FROM at_blacklist WHERE "jti"=$1);`
 
 	var blacklisted bool

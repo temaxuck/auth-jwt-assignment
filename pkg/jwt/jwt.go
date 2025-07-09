@@ -10,13 +10,9 @@ import (
 	"github.com/google/uuid"
 )
 
-type AccessTokenPayload struct {
+type Claims struct {
 	RefreshTokenID string `json:"rtid"`
 	_jwt.RegisteredClaims
-}
-
-func (p *AccessTokenPayload) GetExpiresAt() time.Time {
-	return p.ExpiresAt.Time
 }
 
 type JWT struct {
@@ -28,24 +24,24 @@ func New(secret []byte, ttl time.Duration) *JWT {
 	return &JWT{secret, ttl}
 }
 
-func (j *JWT) GenerateToken(userID string, rtID string) (token string, payload *AccessTokenPayload, err error) {
-	payload = &AccessTokenPayload{
+func (j *JWT) GenerateToken(userID string, rtID string) (token string, claims *Claims, err error) {
+	claims = &Claims{
 		RefreshTokenID: rtID,
 		RegisteredClaims: _jwt.RegisteredClaims{
+			ID:        uuid.New().String(),
 			Subject:   userID,
 			ExpiresAt: _jwt.NewNumericDate(time.Now().Add(j.ttl)),
-			ID:        uuid.New().String(),
 		},
 	}
-	token, err = _jwt.NewWithClaims(_jwt.SigningMethodHS512, payload).SignedString(j.secret)
+	token, err = _jwt.NewWithClaims(_jwt.SigningMethodHS512, claims).SignedString(j.secret)
 
-	return token, payload, err
+	return token, claims, err
 }
 
-func (j *JWT) ValidateToken(token string) (*AccessTokenPayload, error) {
+func (j *JWT) ValidateToken(token string) (*Claims, error) {
 	t, err := _jwt.ParseWithClaims(
 		token,
-		&AccessTokenPayload{},
+		&Claims{},
 		func(t *_jwt.Token) (interface{}, error) {
 			if _, ok := t.Method.(*_jwt.SigningMethodHMAC); !ok {
 				return nil, fmt.Errorf("unexpected signing method: %s", t.Header["alg"])
@@ -57,7 +53,7 @@ func (j *JWT) ValidateToken(token string) (*AccessTokenPayload, error) {
 		return nil, err
 	}
 
-	p, ok := t.Claims.(*AccessTokenPayload)
+	p, ok := t.Claims.(*Claims)
 	if !ok || !t.Valid {
 		return nil, errors.New("invalid token")
 	}

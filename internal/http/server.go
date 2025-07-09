@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	c "auth-jwt-assignment/config"
+	"auth-jwt-assignment/internal/auth"
 	"auth-jwt-assignment/internal/http/routes"
 	"auth-jwt-assignment/internal/repo"
 	"auth-jwt-assignment/pkg/jwt"
@@ -28,12 +29,13 @@ func NewServer(addr string, cfg *c.Config, db *pgxpool.Pool) *Server {
 
 func (s *Server) RunServer() error {
 	j := jwt.New(s.cfg.Auth.Secret, s.cfg.Auth.AccessTokenTTL)
-	tr := repo.NewTokenRepo(s.db, s.cfg.Auth.RefreshTokenTTL)
+	tr := repo.NewTokenRepo(s.db)
+	as := auth.NewAuthService(j, tr, s.cfg)
 
 	mux := http.NewServeMux()
-	mux.Handle("/auth/", http.StripPrefix("/auth", routes.NewAuthRouter(j, tr, s.cfg.Auth.WebhookURL)))
+	mux.Handle("/", routes.NewBaseRouter(as))
+	mux.Handle("/auth/", http.StripPrefix("/auth", routes.NewAuthRouter(as, s.cfg.Auth.WebhookURL)))
 	mux.Handle("/security/", http.StripPrefix("/security", routes.NewSecurityRouter()))
-	mux.Handle("/", routes.NewBaseRouter(j, tr))
 
 	log.Println("Starting server on:", s.addr)
 	return http.ListenAndServe(s.addr, mux)

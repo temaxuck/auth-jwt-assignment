@@ -11,9 +11,11 @@ type RefreshToken struct {
 	CreatedAt time.Time
 	ExpiresAt time.Time
 	Revoked   bool
+
+	WebToken string
 }
 
-func NewRefreshToken(tokenID string, userID string, tokenHash string, userAgent string, ip string, createdAt time.Time, expiresAt time.Time, revoked bool) *RefreshToken {
+func NewRefreshToken(tokenID string, userID string, tokenHash string, userAgent string, ip string, createdAt time.Time, expiresAt time.Time, revoked bool, token string) *RefreshToken {
 	return &RefreshToken{
 		tokenID,
 		userID,
@@ -23,5 +25,7 @@ func NewRefreshToken(tokenID string, userID string, tokenHash string, userAgent 
 		createdAt,
 		expiresAt,
 		revoked,
+
+		token,
 	}
 }

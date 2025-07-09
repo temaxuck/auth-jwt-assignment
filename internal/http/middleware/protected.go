@@ -5,11 +5,10 @@ import (
 	"log"
 	"net/http"
 
-	"auth-jwt-assignment/internal/repo"
-	"auth-jwt-assignment/pkg/jwt"
+	"auth-jwt-assignment/internal/auth"
 )
 
-func Protected(j *jwt.JWT, tr *repo.TokenRepo, next http.HandlerFunc) http.HandlerFunc {
+func Protected(service *auth.AuthService, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		atCookie, err := r.Cookie("access-token")
 		if err != nil {
@@ -23,19 +22,8 @@ func Protected(j *jwt.JWT, tr *repo.TokenRepo, next http.HandlerFunc) http.Handl
 			return
 		}
 
-		payload, err := j.ValidateToken(atCookie.Value)
+		at, err := service.ValidateAccessToken(atCookie.Value)
 		if err != nil {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-
-		blacklisted, err := tr.CheckIfAccessTokenBlacklisted(payload)
-		if err != nil {
-			log.Printf("ERROR: %v", err)
-			http.Error(w, "Server error", http.StatusInternalServerError)
-			return
-		}
-		if blacklisted {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -47,7 +35,7 @@ func Protected(j *jwt.JWT, tr *repo.TokenRepo, next http.HandlerFunc) http.Handl
 
 		ctx := r.Context()
 		ctx = context.WithValue(ctx, "refresh-token", rtValue)
-		ctx = context.WithValue(ctx, "access-token-payload", payload)
+		ctx = context.WithValue(ctx, "access-token-payload", at)
 		r = r.WithContext(ctx)
 
 		next(w, r)

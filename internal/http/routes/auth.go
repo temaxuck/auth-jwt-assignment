@@ -8,24 +8,22 @@ import (
 
 	"auth-jwt-assignment/internal/auth"
 	mw "auth-jwt-assignment/internal/http/middleware"
-	"auth-jwt-assignment/internal/repo"
-	"auth-jwt-assignment/pkg/jwt"
+	m "auth-jwt-assignment/internal/models"
 	"auth-jwt-assignment/pkg/rm"
 )
 
 type AuthRouter struct {
-	jwt                    *jwt.JWT
-	r                      *repo.TokenRepo
+	service                *auth.AuthService
 	notificationWebhookURL string
 }
 
-func NewAuthRouter(jwt *jwt.JWT, r *repo.TokenRepo, webhookURL string) *http.ServeMux {
-	h := AuthRouter{jwt, r, webhookURL}
+func NewAuthRouter(service *auth.AuthService, webhookURL string) *http.ServeMux {
+	h := AuthRouter{service, webhookURL}
 
 	mux := http.NewServeMux()
 	mux.Handle("/{guid}/login", rm.MethodMapper{Post: h.login})
 	mux.Handle("/{guid}/logout", rm.MethodMapper{Post: h.logout})
-	mux.Handle("/{guid}/refresh", rm.MethodMapper{Post: mw.Protected(jwt, r, h.refresh)})
+	mux.Handle("/{guid}/refresh", rm.MethodMapper{Post: mw.Protected(h.service, h.refresh)})
 
 	return mux
 }
@@ -33,27 +31,27 @@ func NewAuthRouter(jwt *jwt.JWT, r *repo.TokenRepo, webhookURL string) *http.Ser
 func (h *AuthRouter) login(w http.ResponseWriter, r *http.Request) {
 	userID := r.PathValue("guid")
 	ip, _, _ := net.SplitHostPort(r.RemoteAddr) // Assuming http.Request.RemoteAddr is always valid
-	at, atString, rt, rtString, err := auth.IssueTokenPair(h.r, h.jwt, userID, r.UserAgent(), ip)
+	at, rt, err := h.service.IssueTokenPair(userID, r.UserAgent(), ip)
 	if err != nil {
 		log.Printf("ERROR: %v", err)
 		http.Error(w, "Server error", http.StatusInternalServerError)
 		return
 	}
-	setTokenPairCookies(w, atString, at.GetExpiresAt(), rtString, rt.ExpiresAt)
+	setTokenPairCookies(w, at.WebToken, at.ExpiresAt, rt.WebToken, rt.ExpiresAt)
 }
 
 func (h *AuthRouter) logout(w http.ResponseWriter, r *http.Request) {
 	defer resetTokenPairCookies(w)
 
 	atCookie, _ := r.Cookie("access-token")
-	atPayload, _ := h.jwt.ValidateToken(atCookie.Value)
+	atPayload, _ := h.service.ValidateAccessToken(atCookie.Value)
 	rtRaw := ""
 	if rtCookie, err := r.Cookie("refresh-token"); err == nil {
 		rtRaw = rtCookie.Value
 	}
-	rt, _ := auth.ExtractRefreshToken(h.r, rtRaw)
+	rt, _ := h.service.ExtractRefreshToken(rtRaw)
 
-	err := auth.Deauthorize(h.r, atPayload, rt)
+	err := h.service.Deauthorize(atPayload, rt)
 	if err != nil {
 		log.Printf("ERROR: %v", err)
 	}
@@ -61,20 +59,20 @@ func (h *AuthRouter) logout(w http.ResponseWriter, r *http.Request) {
 
 func (h *AuthRouter) refresh(w http.ResponseWriter, r *http.Request) {
 	userID := r.PathValue("guid")
-	atPayload, _ := r.Context().Value("access-token-payload").(*jwt.AccessTokenPayload)
+	at, _ := r.Context().Value("access-token-payload").(*m.AccessToken)
 	rtRaw, _ := r.Context().Value("refresh-token").(string)
-	rt, err := auth.ExtractRefreshToken(h.r, rtRaw)
+	rt, err := h.service.ExtractRefreshToken(rtRaw)
 	if err != nil {
 		log.Printf("ERROR: %v", err)
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-	if !auth.ValidateRefreshToken(rt, atPayload) {
+	if !h.service.ValidateRefreshToken(rt, at) {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 	defer func() {
-		err := h.r.RevokeRefreshToken(rt)
+		err := h.service.RevokeRefreshToken(rt)
 		if err != nil {
 			log.Printf("ERROR: %v", err)
 			http.Error(w, "Server error", http.StatusInternalServerError)
@@ -84,11 +82,11 @@ func (h *AuthRouter) refresh(w http.ResponseWriter, r *http.Request) {
 	ip, _, _ := net.SplitHostPort(r.RemoteAddr) // Assuming http.Request.RemoteAddr is always valid
 	userAgent := r.UserAgent()
 	if rt.UserAgent != userAgent {
-		err := auth.Deauthorize(h.r, atPayload, rt)
+		err := h.service.Deauthorize(at, rt)
 		if err != nil {
 			log.Printf("ERROR: failed to deauthorize: %v", err)
 		}
-		err = h.r.RevokeRefreshTokensForUserIP(userID, ip)
+		err = h.service.RevokeRefreshTokensForUserIP(userID, ip)
 		if err != nil {
 			log.Printf("ERROR: failed to revoke tokens for user [%s; %s]: %v", userID, ip, err)
 		}
@@ -100,20 +98,20 @@ func (h *AuthRouter) refresh(w http.ResponseWriter, r *http.Request) {
 
 	if rt.IP != ip {
 		go func() {
-			err := auth.NotifyRefreshFromNewIP(h.notificationWebhookURL, userID, ip, rt.IP, userAgent)
+			err := h.service.NotifyRefreshFromNewIP(h.notificationWebhookURL, userID, ip, rt.IP, userAgent)
 			if err != nil {
 				log.Printf("ERROR: failed to notify security service: %v", err)
 			}
 		}()
 	}
 
-	at, atString, rt, rtString, err := auth.IssueTokenPair(h.r, h.jwt, userID, r.UserAgent(), ip)
+	at, rt, err = h.service.IssueTokenPair(userID, r.UserAgent(), ip)
 	if err != nil {
 		log.Printf("ERROR: %v", err)
 		http.Error(w, "Server error", http.StatusInternalServerError)
 		return
 	}
-	setTokenPairCookies(w, atString, at.GetExpiresAt(), rtString, rt.ExpiresAt)
+	setTokenPairCookies(w, at.WebToken, at.ExpiresAt, rt.WebToken, rt.ExpiresAt)
 }
 
 func setTokenPairCookies(w http.ResponseWriter, at string, atExpiresAt time.Time, rt string, rtExpiresAt time.Time) {
