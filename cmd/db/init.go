@@ -2,7 +2,6 @@ package main
 
 import (
 	"log"
-	"os"
 
 	c "auth-jwt-assignment/config"
 	pg "auth-jwt-assignment/internal/postgres"

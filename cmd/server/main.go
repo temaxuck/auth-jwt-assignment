@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"os"
 
 	c "auth-jwt-assignment/config"
 	"auth-jwt-assignment/internal/http"
