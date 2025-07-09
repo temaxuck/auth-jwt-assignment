@@ -17,7 +17,6 @@ func main() {
 	db, err := pg.Connect(cfg)
 	if err != nil {
 		log.Fatalf("ERROR: %v", err)
-		os.Exit(1)
 	}
 
 	s := http.NewServer(addr, cfg, db)

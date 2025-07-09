@@ -39,7 +39,6 @@ func requireEnvVar(varname string) string {
 	env := os.Getenv(varname)
 	if env == "" {
 		log.Fatalf("ERROR: Variable %q must be present in environment", varname)
-		os.Exit(1)
 	}
 
 	return env
@@ -61,7 +60,6 @@ func defaultIntVar(varname string, defaultVal int) int {
 		v, err := strconv.Atoi(env)
 		if err != nil {
 			log.Fatalf("ERROR: Couldn't parse integer value: %s", env)
-			os.Exit(1)
 		}
 		return v
 	}
