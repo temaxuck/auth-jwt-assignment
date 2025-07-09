@@ -16,7 +16,20 @@ import (
 	"github.com/google/uuid"
 )
 
-func IssueRefreshToken(r *repo.TokenRepo, guid string, userAgent string, ip string) (token string, rt *m.RefreshToken, err error) {
+func IssueTokenPair(r *repo.TokenRepo, j *jwt.JWT, userID string, userAgent string, ip string) (at *jwt.AccessTokenPayload, atString string, rt *m.RefreshToken, rtString string, err error) {
+	rtString, rt, err = IssueRefreshToken(r, userID, userAgent, ip)
+	if err != nil {
+		return nil, "", nil, "", err
+	}
+	atString, at, err = j.GenerateToken(userID, rt.ID)
+	if err != nil {
+		return nil, "", nil, "", err
+	}
+
+	return at, atString, rt, rtString, nil
+}
+
+func IssueRefreshToken(r *repo.TokenRepo, userID string, userAgent string, ip string) (token string, rt *m.RefreshToken, err error) {
 	tokenID := uuid.New().String()
 	tp, err := twc.New(tokenID)
 	if err != nil {
@@ -27,7 +40,7 @@ func IssueRefreshToken(r *repo.TokenRepo, guid string, userAgent string, ip stri
 		return "", nil, err
 	}
 
-	rt, err = r.CreateRefreshToken(tokenID, guid, tokenHash, userAgent, ip)
+	rt, err = r.CreateRefreshToken(tokenID, userID, tokenHash, userAgent, ip)
 	if err != nil {
 		return "", nil, err
 	}
