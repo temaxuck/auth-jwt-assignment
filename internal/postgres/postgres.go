@@ -7,10 +7,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	c "auth-jwt-assignment/config"
-	m "auth-jwt-assignment/internal/models"
 )
 
-func ConnectDB(cfg *c.Config) (*pgxpool.Pool, error) {
+func Connect(cfg *c.Config) (*pgxpool.Pool, error) {
 	poolConfig, err := pgxpool.ParseConfig(cfg.PG.URL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse pool config: %w", err)
@@ -28,13 +27,4 @@ func ConnectDB(cfg *c.Config) (*pgxpool.Pool, error) {
 	}
 
 	return pool, nil
-}
-
-func InitDB(pool *pgxpool.Pool) error {
-	err := m.RefreshToken{}.CreateTable(pool)
-	if err != nil {
-		return fmt.Errorf("failed to create table: %w", err)
-	}
-
-	return nil
 }
