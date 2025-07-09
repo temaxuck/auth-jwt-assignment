@@ -1,185 +1,58 @@
 package http
 
 import (
-	"context"
 	"encoding/json"
 	"log"
-	"net"
 	"net/http"
 
 	c "auth-jwt-assignment/config"
-	"auth-jwt-assignment/internal/auth"
-	rm "auth-jwt-assignment/pkg/rm"
+	mw "auth-jwt-assignment/internal/http/middleware"
+	"auth-jwt-assignment/internal/http/routes"
+	"auth-jwt-assignment/internal/repo"
+	"auth-jwt-assignment/pkg/jwt"
+	"auth-jwt-assignment/pkg/rm"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // TODO: Put Handler logic into separate file, e.g. `internal/http/routes/auth.go`
 // TODO: Do not store db in the Handler, instead store TokenRepo
-type Handler struct {
-	cfg *c.Config
-	db  *pgxpool.Pool
+type Server struct {
+	addr string
+	cfg  *c.Config
+	db   *pgxpool.Pool
 }
 
-func RunServer(addr string, cfg *c.Config, db *pgxpool.Pool) error {
-	h := &Handler{
-		cfg: cfg,
-		db:  db,
-	}
-
-	router := http.NewServeMux()
-	router.Handle("/auth/{guid}/login", rm.MethodMapper{Post: h.login})
-	router.Handle("/auth/{guid}/logout", rm.MethodMapper{Post: h.logout})
-	router.Handle("/auth/{guid}/refresh", rm.MethodMapper{Post: h.protected(h.refresh)})
-	router.Handle("/auth/security/refresh-new-ip", rm.MethodMapper{Post: securityDummyWebhook})
-	router.Handle("/whoami", rm.MethodMapper{Get: h.protected(h.whoami)})
-
-	log.Println("Starting server on:", addr)
-	return http.ListenAndServe(addr, router)
-
-}
-
-// TODO: Move into middleware
-func (h *Handler) protected(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		atCookie, err := r.Cookie("access-token")
-		if err != nil {
-			switch err {
-			case http.ErrNoCookie:
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			default:
-				log.Printf("ERROR: %v", err)
-				http.Error(w, "Server error", http.StatusInternalServerError)
-			}
-			return
-		}
-
-		payload, err := auth.ValidateAccessToken(h.cfg, atCookie.Value)
-		if err != nil {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-
-		rtCookie, err := r.Cookie("refresh-token")
-		ctx := r.Context()
-		ctx = context.WithValue(ctx, "access-token", atCookie.Value)
-		ctx = context.WithValue(ctx, "refresh-token", rtCookie.Value)
-		ctx = context.WithValue(ctx, "access-token-payload", payload)
-		r = r.WithContext(ctx)
-
-		next(w, r)
+func NewServer(addr string, cfg *c.Config, db *pgxpool.Pool) *Server {
+	return &Server{
+		addr: addr,
+		cfg:  cfg,
+		db:   db,
 	}
 }
 
-// TODO: Move issuing a pair of tokens into a separate function in `auth`
-func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
-	guid := r.PathValue("guid")
-	accessToken, expires, err := auth.IssueAccessToken(guid, h.cfg.Auth.AccessTokenLifetime, h.cfg.Auth.Secret)
-	if err != nil {
-		log.Printf("ERROR: %v", err)
-		http.Error(w, "Server error", http.StatusInternalServerError)
-		return
-	}
-	auth.SetTokenCookie(w, "access-token", accessToken, expires)
+func (s *Server) RunServer() error {
+	j := jwt.New(s.cfg.Auth.Secret, s.cfg.Auth.AccessTokenTTL)
+	tr := repo.NewTokenRepo(s.db, s.cfg.Auth.RefreshTokenTTL)
 
-	ip, _, _ := net.SplitHostPort(r.RemoteAddr) // Assuming http.Request.RemoteAddr is always valid
-	refreshToken, expires, err := auth.IssueRefreshToken(h.db, guid, accessToken, r.UserAgent(), ip, h.cfg.Auth.RefreshTokenLifetime)
-	if err != nil {
-		log.Printf("ERROR: %v", err)
-		http.Error(w, "Server error", http.StatusInternalServerError)
-		return
-	}
-	auth.SetTokenCookie(w, "refresh-token", refreshToken, expires)
+	mux := http.NewServeMux()
+	mux.Handle("/auth/", http.StripPrefix("/auth", routes.NewAuthRouter(j, tr, s.cfg.Auth.WebhookURL)))
+	mux.Handle("/security/refresh-new-ip", rm.MethodMapper{Post: securityDummyWebhook})
+	mux.Handle("/whoami", rm.MethodMapper{Get: mw.Protected(j, tr, whoami)})
+
+	log.Println("Starting server on:", s.addr)
+	return http.ListenAndServe(s.addr, mux)
 }
 
-// TODO: Blacklist Access Token
-// TODO: Put deauthorization logic into a separate method `auth.Deauthorize()`
-func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
-	guid := r.PathValue("guid")
-	ip, _, _ := net.SplitHostPort(r.RemoteAddr) // Assuming http.Request.RemoteAddr is always valid
-	err := auth.RevokeRefreshTokensForClient(h.db, guid, ip, r.UserAgent())
-	if err != nil {
-		log.Printf("ERROR: %v", err)
-		http.Error(w, "Server error", http.StatusInternalServerError)
-		return
-	}
-
-	auth.ResetTokenCookie(w, "access-token")
-	auth.ResetTokenCookie(w, "refresh-token")
-}
-
-// TODO: Blacklist Access Token
-// TODO: Move issuing a pair of tokens into a separate function in `auth`
-func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
-	guid := r.PathValue("guid")
-	ip, _, _ := net.SplitHostPort(r.RemoteAddr) // Assuming http.Request.RemoteAddr is always valid
-	userAgent := r.UserAgent()
-	atRaw, _ := r.Context().Value("access-token").(string)
-	rtRaw, _ := r.Context().Value("refresh-token").(string)
-
-	rt, err := auth.FetchRefreshTokenByRawToken(h.db, guid, rtRaw)
-	if err != nil {
-		log.Printf("ERROR: %v", err)
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-	if !auth.ValidateRefreshToken(rt) {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-	defer func() {
-		err := auth.RevokeRefreshToken(h.db, rt)
-		if err != nil {
-			log.Printf("ERROR: %v", err)
-		}
-	}()
-
-	if rt.AccessToken != atRaw {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-	if rt.UserAgent != userAgent {
-		auth.ResetTokenCookie(w, "access-token")
-		auth.ResetTokenCookie(w, "refresh-token")
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	if rt.IP != ip {
-		go func() {
-			err := auth.NotifyRefreshFromNewIP(h.cfg.Auth.WebhookURL, guid, ip, rt.IP, userAgent)
-			if err != nil {
-				log.Printf("ERROR: Failed to notify security service: %v", err)
-			}
-		}()
-	}
-
-	atNew, expires, err := auth.IssueAccessToken(guid, h.cfg.Auth.AccessTokenLifetime, h.cfg.Auth.Secret)
-	if err != nil {
-		log.Printf("ERROR: %v", err)
-		http.Error(w, "Server error", http.StatusInternalServerError)
-		return
-	}
-	auth.SetTokenCookie(w, "access-token", atNew, expires)
-
-	rtNew, expires, err := auth.IssueRefreshToken(h.db, guid, atNew, r.UserAgent(), ip, h.cfg.Auth.RefreshTokenLifetime)
-	if err != nil {
-		log.Printf("ERROR: %v", err)
-		http.Error(w, "Server error", http.StatusInternalServerError)
-		return
-	}
-	auth.SetTokenCookie(w, "refresh-token", rtNew, expires)
-}
-
-func (h *Handler) whoami(w http.ResponseWriter, r *http.Request) {
-	atp, ok := r.Context().Value("access-token-payload").(*auth.AccessTokenPayload)
+func whoami(w http.ResponseWriter, r *http.Request) {
+	atp, ok := r.Context().Value("access-token-payload").(*jwt.AccessTokenPayload)
 	if !ok {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 
-	data := map[string]string{"GUID": atp.UserGUID}
+	data := map[string]string{"GUID": atp.Subject}
 	response, err := json.Marshal(data)
 	if err != nil {
 		log.Printf("ERROR: %v", err)
