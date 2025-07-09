@@ -43,15 +43,18 @@ func (h *AuthRouter) login(w http.ResponseWriter, r *http.Request) {
 func (h *AuthRouter) logout(w http.ResponseWriter, r *http.Request) {
 	defer resetTokenPairCookies(w)
 
-	atCookie, _ := r.Cookie("access-token")
-	atPayload, _ := h.service.ValidateAccessToken(atCookie.Value)
-	rtRaw := ""
-	if rtCookie, err := r.Cookie("refresh-token"); err == nil {
-		rtRaw = rtCookie.Value
-	}
-	rt, _ := h.service.ExtractRefreshToken(rtRaw)
+	var at *m.AccessToken
+	var rt *m.RefreshToken
 
-	err := h.service.Deauthorize(atPayload, rt)
+	if atCookie, err := r.Cookie("access-token"); err == nil {
+		at, _ = h.service.ValidateAccessToken(atCookie.Value)
+	}
+
+	if rtCookie, err := r.Cookie("refresh-token"); err == nil {
+		rt, _ = h.service.ExtractRefreshToken(rtCookie.Value)
+	}
+
+	err := h.service.Deauthorize(at, rt)
 	if err != nil {
 		log.Printf("ERROR: %v", err)
 	}
