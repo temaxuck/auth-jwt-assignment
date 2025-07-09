@@ -14,17 +14,14 @@ import (
 func main() {
 	addr := parseAddrFromCli()
 	cfg := c.NewConfig()
-	db, err := pg.ConnectDB(cfg)
+	db, err := pg.Connect(cfg)
 	if err != nil {
 		log.Fatalf("ERROR: %v", err)
 		os.Exit(1)
 	}
-	if err := pg.InitDB(db); err != nil {
-		log.Fatalf("ERROR: %v", err)
-		os.Exit(1)
-	}
 
-	log.Fatal(http.RunServer(addr, cfg, db))
+	s := http.NewServer(addr, cfg, db)
+	log.Fatal(s.RunServer())
 }
 
 func parseAddrFromCli() string {
