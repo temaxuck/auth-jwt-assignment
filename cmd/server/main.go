@@ -10,6 +10,14 @@ import (
 	pg "auth-jwt-assignment/internal/postgres"
 )
 
+// @title Authentication JWT API
+// @version 1.0
+// @description JWT Authentication Assignment API
+
+// @contact.name Artem Darizhapov
+// @contact.email gorropand@gmail.com
+
+// @BasePath /
 func main() {
 	addr := parseAddrFromCli()
 	cfg := c.NewConfig()

@@ -15,6 +15,15 @@ func NewSecurityRouter() *http.ServeMux {
 	return mux
 }
 
+// securityDummyWebhook godoc
+// @Summary Security notification webhook
+// @Description Demo endpoint for IP change notifications
+// @Tags security
+// @Accept json
+// @Param payload body object true "Notification payload"
+// @Success 200
+// @Failure 400
+// @Router /security/refresh-new-ip [post]
 func securityDummyWebhook(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		UserGUID  string `json:"user_guid"`

@@ -28,6 +28,14 @@ func NewAuthRouter(service *auth.AuthService, webhookURL string) *http.ServeMux 
 	return mux
 }
 
+// login godoc
+// @Summary Login user
+// @Description Issues JWT token pair and sets them as cookies
+// @Tags auth
+// @Param guid path string true "User GUID"
+// @Success 200
+// @Failure 500
+// @Router /auth/{guid}/login [post]
 func (h *AuthRouter) login(w http.ResponseWriter, r *http.Request) {
 	userID := r.PathValue("guid")
 	ip, _, _ := net.SplitHostPort(r.RemoteAddr) // Assuming http.Request.RemoteAddr is always valid
@@ -40,6 +48,14 @@ func (h *AuthRouter) login(w http.ResponseWriter, r *http.Request) {
 	setTokenPairCookies(w, at.WebToken, at.ExpiresAt, rt.WebToken, rt.ExpiresAt)
 }
 
+// logout godoc
+// @Summary Logout user
+// @Description Deauthorizes user
+// @Tags auth
+// @Param guid path string true "User GUID"
+// @Success 200
+// @Failure 500
+// @Router /auth/{guid}/logout [post]
 func (h *AuthRouter) logout(w http.ResponseWriter, r *http.Request) {
 	defer resetTokenPairCookies(w)
 
@@ -60,6 +76,15 @@ func (h *AuthRouter) logout(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// refresh godoc
+// @Summary Refresh tokens
+// @Description Refreshes access and refresh tokens if the refresh token is valid. Deauthorizes user if the user agent does not match.
+// @Tags auth
+// @Param guid path string true "User GUID"
+// @Success 200
+// @Failure 401
+// @Failure 500
+// @Router /auth/{guid}/refresh [post]
 func (h *AuthRouter) refresh(w http.ResponseWriter, r *http.Request) {
 	userID := r.PathValue("guid")
 	at, _ := r.Context().Value("access-token-payload").(*m.AccessToken)

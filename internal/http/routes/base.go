@@ -18,6 +18,15 @@ func NewBaseRouter(service *auth.AuthService) *http.ServeMux {
 	return mux
 }
 
+// whoami godoc
+// @Summary Get current user
+// @Description Returns authenticated user GUID
+// @Tags user
+// @Produce json
+// @Success 200 {object} map[string]string
+// @Failure 401
+// @Failure 500
+// @Router /whoami [get]
 func whoami(w http.ResponseWriter, r *http.Request) {
 	atp, ok := r.Context().Value("access-token-payload").(*m.AccessToken)
 	if !ok {
