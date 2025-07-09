@@ -9,10 +9,10 @@ import (
 
 type Config struct {
 	Auth struct {
-		AccessTokenLifetime  time.Duration
-		RefreshTokenLifetime time.Duration
-		Secret               []byte
-		WebhookURL           string
+		AccessTokenTTL  time.Duration
+		RefreshTokenTTL time.Duration
+		Secret          []byte
+		WebhookURL      string
 	}
 
 	PG struct {
@@ -25,8 +25,8 @@ func NewConfig() *Config {
 	cfg := &Config{}
 
 	cfg.Auth.Secret = []byte(requireEnvVar("SECRET_KEY"))
-	cfg.Auth.AccessTokenLifetime = time.Duration(defaultIntVar("ACCESS_LIFETIME_SECONDS", 60*15)) * time.Second
-	cfg.Auth.RefreshTokenLifetime = time.Duration(defaultIntVar("REFRESH_LIFETIME_SECONDS", 60*60*24)) * time.Second
+	cfg.Auth.AccessTokenTTL = time.Duration(defaultIntVar("ACCESS_TOKEN_TTL_SECONDS", 60*15)) * time.Second
+	cfg.Auth.RefreshTokenTTL = time.Duration(defaultIntVar("REFRESH_TOKEN_TTL_SECONDS", 60*60*24)) * time.Second
 	cfg.Auth.WebhookURL = optionalEnvVar("WEBHOOK_URL")
 
 	cfg.PG.URL = requireEnvVar("POSTGRES_URL")
