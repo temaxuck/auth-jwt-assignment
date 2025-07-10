@@ -111,6 +111,7 @@ func (h *AuthRouter) refresh(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
+
 	if !h.service.ValidateRefreshToken(rt, at) {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
@@ -122,7 +123,6 @@ func (h *AuthRouter) refresh(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Server error", http.StatusInternalServerError)
 		}
 	}()
-
 	ip, _, _ := net.SplitHostPort(r.RemoteAddr) // Assuming http.Request.RemoteAddr is always valid
 	userAgent := r.UserAgent()
 	if rt.UserAgent != userAgent {
@@ -152,13 +152,13 @@ func (h *AuthRouter) refresh(w http.ResponseWriter, r *http.Request) {
 		}()
 	}
 
-	at, rt, err = h.service.IssueTokenPair(userID, r.UserAgent(), ip)
+	newAt, newRt, err := h.service.IssueTokenPair(userID, r.UserAgent(), ip)
 	if err != nil {
 		log.Printf("ERROR: %v", err)
 		http.Error(w, "Server error", http.StatusInternalServerError)
 		return
 	}
-	setTokenPairCookies(w, at.WebToken, at.ExpiresAt, rt.WebToken, rt.ExpiresAt)
+	setTokenPairCookies(w, newAt.WebToken, newAt.ExpiresAt, newRt.WebToken, newRt.ExpiresAt)
 	statusPlainText(w, http.StatusOK, http.StatusText(http.StatusOK))
 }
 

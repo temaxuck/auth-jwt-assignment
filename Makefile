@@ -28,4 +28,4 @@ build_docs:
 	$(SWAG_EXECUTABLE) init -g cmd/server/main.go
 
 dev:
-	go run cmd/server/main.go
+	go run cmd/server/main.go -h $(SERVER_HOST) -p $(SERVER_PORT) 
