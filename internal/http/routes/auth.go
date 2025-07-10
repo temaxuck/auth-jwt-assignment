@@ -10,6 +10,8 @@ import (
 	mw "auth-jwt-assignment/internal/http/middleware"
 	m "auth-jwt-assignment/internal/models"
 	"auth-jwt-assignment/pkg/rm"
+
+	"github.com/google/uuid"
 )
 
 type AuthRouter struct {
@@ -38,6 +40,11 @@ func NewAuthRouter(service *auth.AuthService, webhookURL string) *http.ServeMux 
 // @Router /auth/{guid}/login [post]
 func (h *AuthRouter) login(w http.ResponseWriter, r *http.Request) {
 	userID := r.PathValue("guid")
+	if !validateGUID(userID) {
+		http.Error(w, "Invalid GUID", http.StatusBadRequest)
+		return
+	}
+
 	ip, _, _ := net.SplitHostPort(r.RemoteAddr) // Assuming http.Request.RemoteAddr is always valid
 	at, rt, err := h.service.IssueTokenPair(userID, r.UserAgent(), ip)
 	if err != nil {
@@ -87,6 +94,10 @@ func (h *AuthRouter) logout(w http.ResponseWriter, r *http.Request) {
 // @Router /auth/{guid}/refresh [post]
 func (h *AuthRouter) refresh(w http.ResponseWriter, r *http.Request) {
 	userID := r.PathValue("guid")
+	if !validateGUID(userID) {
+		http.Error(w, "Invalid GUID", http.StatusBadRequest)
+		return
+	}
 	at, _ := r.Context().Value("access-token-payload").(*m.AccessToken)
 	rtRaw, _ := r.Context().Value("refresh-token").(string)
 	rt, err := h.service.ExtractRefreshToken(rtRaw)
@@ -143,6 +154,11 @@ func (h *AuthRouter) refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	setTokenPairCookies(w, at.WebToken, at.ExpiresAt, rt.WebToken, rt.ExpiresAt)
+}
+
+func validateGUID(userGUID string) bool {
+	_, err := uuid.Parse(userGUID)
+	return err == nil
 }
 
 func setTokenPairCookies(w http.ResponseWriter, at string, atExpiresAt time.Time, rt string, rtExpiresAt time.Time) {
