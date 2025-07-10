@@ -5,7 +5,9 @@ SWAG_EXECUTABLE ?= swag
 SERVER_HOST ?= localhost
 SERVER_PORT ?= 8080
 
+ifneq (,$(wildcard $(ENV_FILE)))
 include $(ENV_FILE)
+endif
 export
 
 .PHONY: build run init_db build_docs dev
