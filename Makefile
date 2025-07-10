@@ -8,9 +8,13 @@ SERVER_PORT ?= 8080
 include $(ENV_FILE)
 export
 
+.PHONY: build run init_db build_docs dev
+
 build:
-	go $(BUILD_DIR)/server -o cmd/server/
-	go $(BUILD_DIR)/db -o cmd/db/
+	mkdir -p $(BUILD_DIR)
+
+	go build -o $(BUILD_DIR)/server ./cmd/server/
+	go build -o $(BUILD_DIR)/db ./cmd/db/
 
 run: build
 	$(BUILD_DIR)/server -h $(SERVER_HOST) -p $(SERVER_PORT)

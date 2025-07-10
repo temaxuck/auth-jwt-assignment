@@ -17,6 +17,8 @@ services:
       dockerfile: Dockerfile
     env_file: .env 
     environment:
+      SERVER_HOST: ${SERVER_HOST:-0.0.0.0}
+      SERVER_PORT: ${SERVER_PORT:-8080}
       POSTGRES_URL: "postgres://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-admin}@postgres:5432/${POSTGRES_DB:-authdb}"
       SECRET_KEY: ${SECRET_KEY:-secret_key_for_development}
       WEBHOOK_URL: ${WEBHOOK_URL:-http://app:8080/security/refresh-new-ip}
@@ -24,7 +26,7 @@ services:
       REFRESH_TOKEN_TTL_SECONDS: ${REFRESH_TOKEN_TTL_SECONDS:-86400}
       POSTGRES_POOL_SIZE: ${POSTGRES_POOL_SIZE:-1}
     ports:
-      - "8080:8080"
+      - "${SERVER_PORT:-8080}:${SERVER_PORT:-8080}"
     restart: unless-stopped
     depends_on:
       - postgres
