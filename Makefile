@@ -1,6 +1,6 @@
 ENV_FILE        ?= .env
 BUILD_DIR       ?= ./build
-SWAG_EXECUTABLE ?= ~/go/bin/swag
+SWAG_EXECUTABLE ?= swag
 
 SERVER_HOST ?= localhost
 SERVER_PORT ?= 8080
