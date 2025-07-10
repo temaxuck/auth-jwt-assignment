@@ -65,7 +65,10 @@ func (h *AuthRouter) login(w http.ResponseWriter, r *http.Request) {
 // @Success 200
 // @Router /auth/{guid}/logout [post]
 func (h *AuthRouter) logout(w http.ResponseWriter, r *http.Request) {
-	defer resetTokenPairCookies(w)
+	defer func() {
+		resetTokenPairCookies(w)
+		statusPlainText(w, http.StatusOK, http.StatusText(http.StatusOK))
+	}()
 
 	var at *m.AccessToken
 	var rt *m.RefreshToken
@@ -82,7 +85,6 @@ func (h *AuthRouter) logout(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("ERROR: %v", err)
 	}
-	statusPlainText(w, http.StatusOK, http.StatusText(http.StatusOK))
 }
 
 // refresh godoc
