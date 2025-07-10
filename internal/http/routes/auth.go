@@ -32,10 +32,11 @@ func NewAuthRouter(service *auth.AuthService, webhookURL string) *http.ServeMux 
 
 // login godoc
 // @Summary Login user
-// @Description Issues JWT token pair and sets them as cookies
+// @Description Issues a pair of authentication tokens and sets them as cookies
 // @Tags auth
-// @Param guid path string true "User GUID"
-// @Success 200
+// @Param guid path string true "A valid user GUID" example(123e4567-e89b-12d3-a456-426614174000)
+// @Success 204
+// @Failure 400 "Invalid GUID"
 // @Failure 500
 // @Router /auth/{guid}/login [post]
 func (h *AuthRouter) login(w http.ResponseWriter, r *http.Request) {
@@ -53,15 +54,15 @@ func (h *AuthRouter) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	setTokenPairCookies(w, at.WebToken, at.ExpiresAt, rt.WebToken, rt.ExpiresAt)
+	statusPlainText(w, http.StatusNoContent, "")
 }
 
 // logout godoc
 // @Summary Logout user
-// @Description Deauthorizes user
+// @Description Deauthorizes client. If they are not authenticated nothing happens.
 // @Tags auth
-// @Param guid path string true "User GUID"
+// @Param guid path string true "A valid user GUID" example(123e4567-e89b-12d3-a456-426614174000)
 // @Success 200
-// @Failure 500
 // @Router /auth/{guid}/logout [post]
 func (h *AuthRouter) logout(w http.ResponseWriter, r *http.Request) {
 	defer resetTokenPairCookies(w)
@@ -81,13 +82,15 @@ func (h *AuthRouter) logout(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("ERROR: %v", err)
 	}
+	statusPlainText(w, http.StatusOK, http.StatusText(http.StatusOK))
 }
 
 // refresh godoc
 // @Summary Refresh tokens
-// @Description Refreshes access and refresh tokens if the refresh token is valid. Deauthorizes user if the user agent does not match.
+// @Description Refreshes access and refresh tokens if the refresh token is valid.
+// @Description Deauthorizes user if the user agent does not match to the one that issued the refresh token.
 // @Tags auth
-// @Param guid path string true "User GUID"
+// @Param guid path string true "A valid user GUID" example(123e4567-e89b-12d3-a456-426614174000)
 // @Success 200
 // @Failure 401
 // @Failure 500
@@ -154,6 +157,7 @@ func (h *AuthRouter) refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	setTokenPairCookies(w, at.WebToken, at.ExpiresAt, rt.WebToken, rt.ExpiresAt)
+	statusPlainText(w, http.StatusOK, http.StatusText(http.StatusOK))
 }
 
 func validateGUID(userGUID string) bool {

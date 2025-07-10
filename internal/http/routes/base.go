@@ -19,11 +19,11 @@ func NewBaseRouter(service *auth.AuthService) *http.ServeMux {
 }
 
 // whoami godoc
-// @Summary Get current user
+// @Summary Get current user's GUID
 // @Description Returns authenticated user GUID
 // @Tags user
 // @Produce json
-// @Success 200 {object} map[string]string
+// @Success 200 {object} routes.whoami.resp
 // @Failure 401
 // @Failure 500
 // @Router /whoami [get]
@@ -35,8 +35,11 @@ func whoami(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 
-	data := map[string]string{"GUID": atp.UserGUID}
-	response, err := json.Marshal(data)
+	type resp struct {
+		GUID string `json:"GUID" example:"123e4567-e89b-12d3-a456-426614174000"`
+	}
+	body := resp{GUID: atp.UserGUID}
+	response, err := json.Marshal(body)
 	if err != nil {
 		log.Printf("ERROR: %v", err)
 		http.Error(w, "Server error", http.StatusInternalServerError)

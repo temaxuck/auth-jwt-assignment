@@ -1,9 +1,17 @@
 package routes
 
 import (
+	"fmt"
 	"net/http"
 	"time"
 )
+
+func statusPlainText(w http.ResponseWriter, code int, text string) {
+	w.WriteHeader(code)
+	if len(text) > 0 {
+		fmt.Fprintf(w, text)
+	}
+}
 
 func setTokenCookie(w http.ResponseWriter, cookieName string, token string, expires time.Time) {
 	http.SetCookie(w, &http.Cookie{

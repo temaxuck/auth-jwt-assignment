@@ -20,7 +20,7 @@ const docTemplate = `{
     "paths": {
         "/auth/{guid}/login": {
             "post": {
-                "description": "Issues JWT token pair and sets them as cookies",
+                "description": "Issues a pair of authentication tokens and sets them as cookies",
                 "tags": [
                     "auth"
                 ],
@@ -28,15 +28,19 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "User GUID",
+                        "example": "123e4567-e89b-12d3-a456-426614174000",
+                        "description": "A valid user GUID",
                         "name": "guid",
                         "in": "path",
                         "required": true
                     }
                 ],
                 "responses": {
-                    "200": {
-                        "description": "OK"
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Invalid GUID"
                     },
                     "500": {
                         "description": "Internal Server Error"
@@ -46,7 +50,7 @@ const docTemplate = `{
         },
         "/auth/{guid}/logout": {
             "post": {
-                "description": "Deauthorizes user",
+                "description": "Deauthorizes client. If they are not authenticated nothing happens.",
                 "tags": [
                     "auth"
                 ],
@@ -54,7 +58,8 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "User GUID",
+                        "example": "123e4567-e89b-12d3-a456-426614174000",
+                        "description": "A valid user GUID",
                         "name": "guid",
                         "in": "path",
                         "required": true
@@ -63,16 +68,13 @@ const docTemplate = `{
                 "responses": {
                     "200": {
                         "description": "OK"
-                    },
-                    "500": {
-                        "description": "Internal Server Error"
                     }
                 }
             }
         },
         "/auth/{guid}/refresh": {
             "post": {
-                "description": "Refreshes access and refresh tokens if the refresh token is valid. Deauthorizes user if the user agent does not match.",
+                "description": "Refreshes access and refresh tokens if the refresh token is valid.\nDeauthorizes user if the user agent does not match to the one that issued the refresh token.",
                 "tags": [
                     "auth"
                 ],
@@ -80,7 +82,8 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "User GUID",
+                        "example": "123e4567-e89b-12d3-a456-426614174000",
+                        "description": "A valid user GUID",
                         "name": "guid",
                         "in": "path",
                         "required": true
@@ -101,7 +104,7 @@ const docTemplate = `{
         },
         "/security/refresh-new-ip": {
             "post": {
-                "description": "Demo endpoint for IP change notifications",
+                "description": "Demo endpoint for a \"refresh from new IP\" action notifications",
                 "consumes": [
                     "application/json"
                 ],
@@ -116,7 +119,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "type": "object"
+                            "$ref": "#/definitions/routes.securityDummyWebhook.payload"
                         }
                     }
                 ],
@@ -139,15 +142,12 @@ const docTemplate = `{
                 "tags": [
                     "user"
                 ],
-                "summary": "Get current user",
+                "summary": "Get current user's GUID",
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/routes.whoami.resp"
                         }
                     },
                     "401": {
@@ -156,6 +156,38 @@ const docTemplate = `{
                     "500": {
                         "description": "Internal Server Error"
                     }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "routes.securityDummyWebhook.payload": {
+            "type": "object",
+            "properties": {
+                "new_ip": {
+                    "type": "string",
+                    "example": "10.0.0.1:80085"
+                },
+                "old_ip": {
+                    "type": "string",
+                    "example": "127.0.0.1:80085"
+                },
+                "user_agent": {
+                    "type": "string",
+                    "example": "useragent/10.1.1"
+                },
+                "user_guid": {
+                    "type": "string",
+                    "example": "123e4567-e89b-12d3-a456-426614174000"
+                }
+            }
+        },
+        "routes.whoami.resp": {
+            "type": "object",
+            "properties": {
+                "GUID": {
+                    "type": "string",
+                    "example": "123e4567-e89b-12d3-a456-426614174000"
                 }
             }
         }
